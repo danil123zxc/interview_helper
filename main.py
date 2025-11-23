@@ -33,7 +33,6 @@ class ContextSchema(BaseModel):
     years_of_experience: Optional[int] = Field(default=None, description="The number of years of experience the user has")
 
 class Workflow:
-
     def __init__(self, 
                  llm: Optional[BaseChatModel]=None, 
                  system_prompt: Optional[str]=None, 
@@ -80,26 +79,57 @@ class Workflow:
 
         return config
 
+    async def stream_messages(
+            self,
+            user_input: str,
+            context: ContextSchema,
+            agent: CompiledStateGraph,
+        ):
+        """Yield message chunks as the agent streams them."""
+        config = await self._create_config()
+
+        async for message_chunk, metadata in agent.astream(
+            {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": user_input + "Context\n" + context.model_dump_json(),
+                    },
+                ]
+            },
+            stream_mode="messages",
+            config=config,
+        ):
+            if message_chunk.content:
+                yield message_chunk.content
+
     async def _stream_response(
             self,
             user_input: str, 
             context: ContextSchema, 
             agent: CompiledStateGraph
             ) -> None:
-        
-        config = await self._create_config()
-        
-        async for message_chunk, metadata in agent.astream(
-            {
-                "messages": [
-                    {"role": "user", "content": user_input + "Context\n" + context.model_dump_json()},
-                ]
-            },
-            stream_mode="messages",
-            config=config,
-            ):
-                if message_chunk.content:
-                    print(message_chunk.content, end='|', flush=True)
+        async for chunk in self.stream_messages(
+            user_input=user_input,
+            context=context,
+            agent=agent,
+        ):
+            print(chunk, end='|', flush=True)
+
+    async def run_and_collect(
+            self,
+            input: str,
+            context: ContextSchema,
+        ) -> str:
+        """Run the agent and return the concatenated output text."""
+        chunks: List[str] = []
+        async for chunk in self.stream_messages(
+            user_input=input,
+            context=context,
+            agent=self.agent,
+        ):
+            chunks.append(chunk)
+        return "".join(chunks)
 
     async def execute_agent(
             self,
