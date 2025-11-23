@@ -1,0 +1,21 @@
+[project]
+name = "interview-helper"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "deepagents>=0.2.7",
+    "langchain>=1.0.8",
+    "langchain-community>=0.4.1",
+    "langchain-openai>=1.0.3",
+    "langchain-tavily>=0.2.13",
+    "langgraph>=1.0.3",
+    "langgraph-checkpoint>=3.0.1",
+    "langgraph-checkpoint-postgres>=3.0.1",
+    "langsmith>=0.4.45",
+    "praw>=7.8.1",
+    "psycopg>=3.2.13",
+    "psycopg-binary>=3.2.13",
+    "tavily-python>=0.7.13",
+]
