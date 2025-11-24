@@ -3,52 +3,23 @@ import asyncio
 import streamlit as st
 from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
-from langchain_tavily import TavilySearch, TavilyExtract
-from langchain_community.tools.reddit_search.tool import RedditSearchRun
-from langchain_community.utilities.reddit_search import RedditSearchAPIWrapper
+
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.store.postgres.aio import AsyncPostgresStore
 
-from main import Workflow, ContextSchema
-
-
+from workflow import Workflow
+from schemas import ContextSchema
+from tools import build_tools
 load_dotenv()
 
 
-def build_tools():
-    search_tool = TavilySearch(
-        api_key=os.getenv("TAVILY_API_KEY"),
-        max_results=5,
-    )
-    extract_tool = TavilyExtract(
-        api_key=os.getenv("TAVILY_API_KEY"),
-        model="gpt-5-mini",
-        temperature=0,
-    )
-    reddit_tool = RedditSearchRun(
-        api_wrapper=RedditSearchAPIWrapper(
-            reddit_client_id=os.getenv("REDDIT_CLIENT_ID"),
-            reddit_client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
-            reddit_user_agent="interview_helper",
-        )
-    )
-
-    tools_instructions = "\n".join(
-        [
-            "Use `tavily_search` to find recent company/industry facts",
-            "Use `tavily_extract` to pull specifics from result URLs. Use this tool after search results.",
-            "Use `reddit_tool` to search Reddit. Think about every parameter before calling this tool.",
-        ]
-    )
-
-    return [search_tool, extract_tool, reddit_tool], tools_instructions
 
 
 async def run_workflow(user_input: str, ctx: ContextSchema) -> str:
     llm = init_chat_model(
-        model="gpt-5",
+        model="gpt-5-mini",
         model_provider="openai",
         temperature=0,
     )
