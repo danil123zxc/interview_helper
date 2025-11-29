@@ -72,7 +72,7 @@ class Workflow:
                 - Metrics to add (examples tailored to the candidate’s work).
                 - Keywords to weave in (from the job posting).
                 - Red flags or risks (if any).
-
+              
                 Constraints:
                 - Be concise and specific; avoid generic advice.
                 - Never fabricate metrics; propose placeholders like “[X%]”, “[N users]”, “[time saved]” when missing.

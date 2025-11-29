@@ -1,0 +1,11 @@
+.git
+.gitignore
+.venv
+__pycache__/
+*.py[cod]
+*.log
+.env
+env/
+tmp/
+UI/__pycache__/
+src/**/__pycache__/

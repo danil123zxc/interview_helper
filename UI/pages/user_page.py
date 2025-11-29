@@ -1,10 +1,6 @@
 import streamlit as st
 
-try:
-    # Available in newer Streamlit; use when present.
-    from streamlit.runtime.navigation import switch_page  # type: ignore
-except ImportError:  # pragma: no cover
-    switch_page = None
+switch_page = getattr(st, "switch_page", None)
 
 from src.schemas import ContextSchema
 
@@ -81,7 +77,10 @@ def main():
         st.success("Saved. Head to Chat to start the conversation.")
 
     if st.session_state.context_saved:
-        st.page_link("streamlit_app.py", label="Chat")
+        if switch_page:
+            switch_page("pages/chat_page.py")
+        else:
+            st.page_link("streamlit_app.py", label="Chat")
 
 
 if __name__ == "__main__":
