@@ -17,5 +17,16 @@ dependencies = [
     "praw>=7.8.1",
     "psycopg>=3.2.13",
     "psycopg-binary>=3.2.13",
+    "pypdf>=6.4.0",
+    "streamlit>=1.51.0",
     "tavily-python>=0.7.13",
 ]
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+where = ["."]
