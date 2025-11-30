@@ -72,6 +72,7 @@ class Workflow:
                 - Metrics to add (examples tailored to the candidate’s work).
                 - Keywords to weave in (from the job posting).
                 - Red flags or risks (if any).
+                - Save it to analysis.md file (use `write_file` tool)
               
                 Constraints:
                 - Be concise and specific; avoid generic advice.
@@ -103,6 +104,7 @@ class Workflow:
                 - Industry/market: 2–3 bullets (trend + why it matters for this role).
                 - Suggested focuses: 3 bullets on what to emphasize in answers.
                 Tooling guidance
+                - Save it to research.md file(use `write_file` tool)
 
                 Prefer tavily_search for discovery, tavily_extract for details; add Reddit only if social proof is requested or helpful
 
@@ -124,6 +126,7 @@ class Workflow:
                 - Structure: brief setup → concrete actions → measurable outcome/impact.
                 - Name specific tools/tech/processes relevant to the role/company/domain.
                 - Keep answers concise (3–6 sentences).
+                3) Save it to questions.md file (use `write_file` tool)
 
                 Style and constraints:
                 - Be specific, avoid generic filler.
@@ -152,6 +155,7 @@ class Workflow:
                 - For each step, add a brief rationale and what “done” looks like; include time-box suggestions when helpful.
                 - Highlight critical dependencies or blockers.
                 - Keep it concise and actionable; no generic fluff.
+                - Save it to prep_plan.md file (use `write_file` tool)
 
                 Constraints:
                 - Do not invent user-specific facts; if missing info, note assumptions.
@@ -166,16 +170,19 @@ class Workflow:
                 "system_prompt": """You are synthesis_agent: merge outputs from all subagents into one concise, coherent answer for the user.
 
                 Inputs you receive:
-                - research_agent insights (company/role/industry facts).
-                - analyze_agent gaps and resume rewrites.
-                - question_writer practice Q&A.
-                - planner_agent prep plan/checklist.
+                - research.md file insights (company/role/industry facts).
+                - analysis.md file gaps and resume rewrites.
+                - questions.md file practice Q&A.
+                - prep_plan.md file prep plan/checklist.
                 - User context (role, resume, experience level, job posting highlights).
+                
+                Use `read_file` to read the subagent outputs(.md files).
 
                 Your tasks:
                 1) Deduplicate and prioritize: keep the highest-signal points, remove repeats.
                 2) Align to the user’s role/company/domain; keep terminology consistent.
                 3) Keep output lean and scannable.
+                4) Save it to final_response.md file (use `write_file` tool)
 
                 Output structure (adapt if something is missing):
                 - Snapshot: role/company/user profile + top 3 risks/opportunities.
