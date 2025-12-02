@@ -687,7 +687,7 @@ wheels = [
 [[package]]
 name = "interview-helper"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "deepagents" },
     { name = "langchain" },
@@ -702,6 +702,7 @@ dependencies = [
     { name = "psycopg" },
     { name = "psycopg-binary" },
     { name = "pypdf" },
+    { name = "sentry-sdk" },
     { name = "streamlit" },
     { name = "tavily-python" },
 ]
@@ -721,6 +722,7 @@ requires-dist = [
     { name = "psycopg", specifier = ">=3.2.13" },
     { name = "psycopg-binary", specifier = ">=3.2.13" },
     { name = "pypdf", specifier = ">=6.4.0" },
+    { name = "sentry-sdk", specifier = ">=2.46.0" },
     { name = "streamlit", specifier = ">=1.51.0" },
     { name = "tavily-python", specifier = ">=0.7.13" },
 ]
@@ -2232,6 +2234,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/72/28/1b0556d14f0355101748a5963830733867d976d196ba1e0527701f3d5858/runloop_api_client-0.68.0.tar.gz", hash = "sha256:0a8f8be60e314325ca3066e3d9f23e3da220a12f4775361eab43fcca063af9bc", size = 402392, upload-time = "2025-11-19T00:55:33.797Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a1/be/12ad18addbc5f26508856f4afeab135e4b31b4beec364b059eb32c3aa833/runloop_api_client-0.68.0-py3-none-any.whl", hash = "sha256:a9c70cc63e85f242f851f64b1b54ca050fc981922fc322a3500ef3ad7d67fcaa", size = 269779, upload-time = "2025-11-19T00:55:32.164Z" },
+]
+
+[[package]]
+name = "sentry-sdk"
+version = "2.46.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "certifi" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7c/d7/c140a5837649e2bf2ec758494fde1d9a016c76777eab64e75ef38d685bbb/sentry_sdk-2.46.0.tar.gz", hash = "sha256:91821a23460725734b7741523021601593f35731808afc0bb2ba46c27b8acd91", size = 374761, upload-time = "2025-11-24T09:34:13.932Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4b/b6/ce7c502a366f4835b1f9c057753f6989a92d3c70cbadb168193f5fb7499b/sentry_sdk-2.46.0-py2.py3-none-any.whl", hash = "sha256:4eeeb60198074dff8d066ea153fa6f241fef1668c10900ea53a4200abc8da9b1", size = 406266, upload-time = "2025-11-24T09:34:12.114Z" },
 ]
 
 [[package]]

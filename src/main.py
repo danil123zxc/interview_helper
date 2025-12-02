@@ -8,12 +8,13 @@ from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.store.postgres import PostgresStore
 from langchain_community.tools.reddit_search.tool import RedditSearchRun
 from langchain_community.utilities.reddit_search import RedditSearchAPIWrapper
-from src.schemas import ContextSchema
+from UI.schemas import ContextSchema
 from src.workflow import Workflow
-from src.logging_config import setup_logging
+from src.logging_config import setup_logging, init_sentry
 load_dotenv()
 
 setup_logging()
+init_sentry()
 logger = logging.getLogger(__name__)
 
 def main():

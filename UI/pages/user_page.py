@@ -1,8 +1,10 @@
 import streamlit as st
+from dotenv import load_dotenv
 
 switch_page = getattr(st, "switch_page", None)
 
 from src.schemas import ContextSchema
+from src.logging_config import setup_logging, init_sentry
 
 from pypdf import PdfReader
 
@@ -10,7 +12,7 @@ from pypdf import PdfReader
 def extract_pdf_text(uploaded_file, max_chars=8000):
     reader = PdfReader(uploaded_file)
     text = "".join(page.extract_text() or "" for page in reader.pages)
-    return text[:max_chars] 
+    return text[:max_chars]
 
 
 def _ensure_state():
@@ -23,7 +25,10 @@ def _ensure_state():
 
 
 def main():
-    st.set_page_config(page_title="User Information", page_icon="🧑‍💻", layout="wide")
+    load_dotenv()
+    setup_logging()
+    init_sentry()
+    st.set_page_config(page_title="User Information", page_icon=":bust_in_silhouette:", layout="wide")
     _ensure_state()
 
     st.title("Your Interview Profile")
@@ -42,7 +47,7 @@ def main():
             "Target role",
             st.session_state.context_model.role if st.session_state.context_model else "AI engineer",
         )
-        
+
         resume = st.text_area(
             "Resume / background",
             st.session_state.context_model.resume if st.session_state.context_model else "",
@@ -64,8 +69,8 @@ def main():
         submitted = st.form_submit_button("Save")
 
     if submitted:
-        resume_file = extract_pdf_text(uploaded_file)
-        
+        resume_file = extract_pdf_text(uploaded_file) if uploaded_file else ""
+
         st.session_state.context_model = ContextSchema(
             role=role,
             resume=f"Resume:\n{resume}\n{resume_file}",
@@ -73,7 +78,7 @@ def main():
             years_of_experience=years_of_experience,
         )
         st.session_state.context_saved = True
-        
+
         st.success("Saved. Head to Chat to start the conversation.")
 
     if st.session_state.context_saved:

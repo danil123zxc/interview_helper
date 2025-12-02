@@ -11,10 +11,11 @@ from src.prompts import deep_agent_prompt
 from langgraph.store.base import BaseStore
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langsmith import uuid7
-from src.schemas import ContextSchema
+from UI.schemas import ContextSchema
 from langgraph.graph.state import CompiledStateGraph
 from src.tools.tools import build_tools
 from deepagents.backends import StoreBackend
+from src.tools.context_middleware import context_middleware
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,8 @@ class Workflow:
                  store: Optional[BaseStore] = None, 
                  checkpointer: Optional[BaseCheckpointSaver] = None,
                  subagents: Optional[Dict[str, Any]] = None,
-                 backend = None
+                 backend = None,
+                 middleware: Optional[List[Any]] = None,
                  ):
       
         self.llm = llm if llm else init_chat_model(
@@ -45,7 +47,8 @@ class Workflow:
         self.configs: List[Dict[str, Any]] = []
         self.store = store
         self.checkpointer = checkpointer
-        self.backends = backend if backend else lambda x: StoreBackend(x)
+        self.backends = backend if backend else None
+        self.middleware = middleware if middleware else [context_middleware]
         self.subagents = subagents if subagents else [
             {
                 "name": "analyze_agent",
@@ -206,7 +209,9 @@ class Workflow:
             system_prompt=self.system_prompt,
             checkpointer=self.checkpointer,
             store=self.store,
-            subagents=self.subagents
+            subagents=self.subagents,
+            middleware=self.middleware,
+            backend=self.backends,
         )
         logger.info("Deep agent created with %d tool(s); subagents=%s", len(self.tools or []), bool(subagents))
 
@@ -243,6 +248,7 @@ class Workflow:
             },
             stream_mode="messages",
             config=config,
+            context=context
         ):
             role = getattr(message_chunk, "type", getattr(message_chunk, "role", "unknown"))
             content = message_chunk.content
@@ -268,9 +274,17 @@ class Workflow:
     def stream_ai_response(
                 self,
                 user_input: str,
-                context: ContextSchema
+                context: ContextSchema,
+                *,
+                include_md_files: bool = True,
+                config: Optional[Dict[str, Any]] = None,
             ):
-        """Yield only AI message chunks as plain text for streaming."""
+        """Yield only AI message chunks as plain text for streaming.
+
+        If include_md_files is True, any .md files found in the graph state
+        (state.files) are streamed after the model output. Falls back to
+        checkpoint lookup when available.
+        """
         allowed_roles = {"ai", "assistant", "assistant_message"}
 
         def _flatten_text(content):
@@ -296,10 +310,13 @@ class Workflow:
             if hasattr(content, "text"):
                 return [str(getattr(content, "text", ""))]
             return [str(content)]
-
+        
+        config = self._create_config() if not config else config
+        
         for chunk in self.stream_all(
             user_input=user_input,
             context=context,
+            config=config,
         ):
             role = getattr(chunk, "type", getattr(chunk, "role", "unknown"))
             role_l = str(role).lower()
@@ -311,6 +328,83 @@ class Workflow:
                 for piece in _flatten_text(getattr(chunk, "content", None)):
                     if piece:
                         yield piece
+
+        if include_md_files:
+            md_files = self._iter_md_files_from_state(config) or self._iter_md_files_from_checkpoint(config)
+            for md in md_files:
+                header = f"\n[Saved file: {md['name']}]"
+                yield header
+                yield "\n"
+                yield md["text"]
+
+    def _iter_md_files_from_state(self, config: Optional[Dict[str, Any]]):
+        """Collect .md files from the latest graph state (state.files)."""
+        if not config or not hasattr(self.agent, "get_state"):
+            return []
+        try:
+            snapshot = self.agent.get_state(config)
+        except Exception as exc:
+            logger.debug("Failed to load graph state for md files: %s", exc)
+            return []
+        if snapshot is None:
+            return []
+
+        state_obj = None
+        if isinstance(snapshot, dict):
+            state_obj = snapshot.get("values") or snapshot.get("state") or snapshot
+        else:
+            state_obj = getattr(snapshot, "values", None) or getattr(snapshot, "state", None) or snapshot
+
+        return self._extract_md_files_from_obj(state_obj)
+
+    def _iter_md_files_from_checkpoint(self, config: Optional[Dict[str, Any]]):
+        """Collect .md files from the latest checkpoint's state.files."""
+        if not self.checkpointer or not config:
+            return []
+        try:
+            ckt = self.checkpointer.get_tuple(config)
+        except Exception as exc:
+            logger.debug("Failed to load checkpoint for md files: %s", exc)
+            return []
+        if not ckt:
+            return []
+
+        checkpoint = getattr(ckt, "checkpoint", None) or {}
+        channel_values = checkpoint.get("channel_values", {}) if isinstance(checkpoint, dict) else {}
+
+        return self._extract_md_files_from_obj(channel_values)
+
+    def _extract_md_files_from_obj(self, obj: Any):
+        """Walk an object tree to collect .md files under any `files` mapping."""
+        results = []
+        seen = set()
+
+        def _coerce_text(val):
+            if isinstance(val, dict):
+                for key in ("text", "content", "$", "page_content", "data"):
+                    if key in val and val[key] is not None:
+                        return str(val[key])
+                return str(val)
+            return "" if val is None else str(val)
+
+        def _walk(current):
+            if isinstance(current, dict):
+                files = current.get("files")
+                if isinstance(files, dict):
+                    for name, val in files.items():
+                        name_str = str(name)
+                        if name_str in seen:
+                            continue
+                        seen.add(name_str)
+                        results.append({"name": name_str, "text": _coerce_text(val)})
+                for v in current.values():
+                    _walk(v)
+            elif isinstance(current, (list, tuple)):
+                for v in current:
+                    _walk(v)
+
+        _walk(obj)
+        return results
 
     def _stream_response(
             self,
@@ -333,4 +427,3 @@ class Workflow:
             user_input=input,
             context=context,
         )
-
