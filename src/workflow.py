@@ -11,7 +11,7 @@ from src.prompts import deep_agent_prompt
 from langgraph.store.base import BaseStore
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langsmith import uuid7
-from UI.schemas import ContextSchema
+from src.schemas import ContextSchema
 from langgraph.graph.state import CompiledStateGraph
 from src.tools.tools import build_tools
 from deepagents.backends import StoreBackend
@@ -47,8 +47,8 @@ class Workflow:
         self.configs: List[Dict[str, Any]] = []
         self.store = store
         self.checkpointer = checkpointer
-        self.backends = backend if backend else None
-        self.middleware = middleware if middleware else [context_middleware]
+        self.backends = backend if backend else lambda x: StoreBackend(x) 
+        self.middleware = middleware if middleware else None
         self.subagents = subagents if subagents else [
             {
                 "name": "analyze_agent",
@@ -83,11 +83,12 @@ class Workflow:
                 - Always ground suggestions in the given resume content; if something is absent, call it out as missing rather than inventing it.
                 
                 """,
-                "tools":[self.tools.get('tavily_extract')]
+                "tools":[self.tools.get('tavily_extract')],
+                "middleware": [context_middleware],
             },
             {
                 "name": "research_agent",
-                "description": "Used to make researches. Use him when you need to research on any topic.",
+                "description": "Used to make researches. Use him when you need to research about the company, role, industry trends, recent news, competitors, products, tech stack, leadership, funding etc.",
                 "system_prompt": f"""You are research_agent: a fast, factual researcher who pulls recent, relevant information about the company, role, and industry to support interview prep. 
                 Tasks
 
@@ -113,6 +114,7 @@ class Workflow:
 
                 Do not invent anything; check facts using tools.""",
                 "tools": [self.tools.get('tavily_search'), self.tools.get('tavily_extract'), self.tools.get('reddit_search')],
+                
             },
             {
                 "name": "question_writer",
@@ -144,6 +146,7 @@ class Workflow:
                 A: …
                 ...
                 """,
+                "middleware": [context_middleware],
             },
             {
                 "name": "planner_agent",
@@ -165,12 +168,15 @@ class Workflow:
                 - Use role/company/domain terminology.
                 - Prefer fewer, higher-leverage steps over long checklists.
                 """,
+                "middleware": [context_middleware],
             },  
             {   
                 "name": "synthesis_agent",
                 "description": """SynthesisAgent merges subagents’ outputs into one concise, deduped response aligned to the user’s role/company, 
                 preserving structure (snapshot, prep plan, Q&A, insights, gap analysis, checklist) and avoiding new facts or fluff.""",
                 "system_prompt": """You are synthesis_agent: merge outputs from all subagents into one concise, coherent answer for the user.
+                
+                Use `read_file` tool to read the subagent outputs(.md files).
 
                 Inputs you receive:
                 - research.md file insights (company/role/industry facts).
@@ -178,9 +184,7 @@ class Workflow:
                 - questions.md file practice Q&A.
                 - prep_plan.md file prep plan/checklist.
                 - User context (role, resume, experience level, job posting highlights).
-                
-                Use `read_file` to read the subagent outputs(.md files).
-
+               
                 Your tasks:
                 1) Deduplicate and prioritize: keep the highest-signal points, remove repeats.
                 2) Align to the user’s role/company/domain; keep terminology consistent.
@@ -200,7 +204,8 @@ class Workflow:
                 - Be concise; prefer bullets; avoid fluffy language.
                 - If a section is missing inputs, note it briefly and move on.
 
-                """
+                """,
+                
             }
         ]
         self.agent = agent if agent else create_deep_agent(
@@ -213,7 +218,7 @@ class Workflow:
             middleware=self.middleware,
             backend=self.backends,
         )
-        logger.info("Deep agent created with %d tool(s); subagents=%s", len(self.tools or []), bool(subagents))
+        logger.info("Deep agent created with %d tool(s); subagents=%s", len(self.tools or []), bool(self.subagents))
 
     def _create_config(self) -> Dict[str, Any]:
         config = {
@@ -235,14 +240,18 @@ class Workflow:
         ):
         """Yield message chunks as the agent streams them."""
         config = self._create_config() if not config else config
-        logger.debug("Starting stream with thread_id=%s", config["configurable"]["thread_id"])
+        thread_id = config["configurable"].get("thread_id") if isinstance(config, dict) else None
+        logger.info(
+            "Starting stream",
+            extra={"thread_id": thread_id, "role": getattr(context, "role", None)},
+        )
 
         for message_chunk, metadata in self.agent.stream(
             {
                 "messages": [
                     {
                         "role": "user",
-                        "content": user_input + "Context\n" + context.model_dump_json(),
+                        "content": user_input,
                     },
                 ]
             },
@@ -257,6 +266,7 @@ class Workflow:
             snippet = (content or "")[:500].replace("\n", " ")
             logger.debug("Chunk role:\n%s\n Content:\n%s", role, snippet)
             yield message_chunk
+        logger.info("Stream completed", extra={"thread_id": thread_id})
 
     def stream_content(
                 self,
@@ -331,6 +341,12 @@ class Workflow:
 
         if include_md_files:
             md_files = self._iter_md_files_from_state(config) or self._iter_md_files_from_checkpoint(config)
+            if md_files:
+                logger.info(
+                    "Streaming %d markdown files from state/checkpoint",
+                    len(md_files),
+                    extra={"thread_id": config.get("configurable", {}).get("thread_id") if isinstance(config, dict) else None},
+                )
             for md in md_files:
                 header = f"\n[Saved file: {md['name']}]"
                 yield header
@@ -393,7 +409,7 @@ class Workflow:
                 if isinstance(files, dict):
                     for name, val in files.items():
                         name_str = str(name)
-                        if name_str in seen:
+                        if not name_str.endswith(".md") or name_str in seen:
                             continue
                         seen.add(name_str)
                         results.append({"name": name_str, "text": _coerce_text(val)})
