@@ -1,4 +1,8 @@
 import streamlit as st
+from src.logging_config import setup_logging, init_sentry
+
+setup_logging()
+init_sentry()
 
 pages = {
     "Interview Helper": [

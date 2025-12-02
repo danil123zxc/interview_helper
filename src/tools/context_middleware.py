@@ -3,13 +3,15 @@ from typing import Any
 
 
 from langchain.agents import AgentState
-from langchain.agents.middleware import before_model
+from langchain.agents.middleware import dynamic_prompt, ModelRequest
 from langgraph.runtime import Runtime
-from UI.schemas import ContextSchema
+from src.schemas import ContextSchema
 
 
-@before_model
-def context_middleware(state: AgentState, runtime: Runtime[ContextSchema]) -> dict | None:  
+@dynamic_prompt
+def context_middleware(request: ModelRequest) -> dict | None:  
     """Inject user context into the LLM input. (Access to user's resume etc)"""
 
-    return runtime.context.model_dump() if runtime.context else None
+    resume = f"""User's Resume:\n{request.runtime.context.model_dump() if request.runtime.context else None}"""
+
+    return resume

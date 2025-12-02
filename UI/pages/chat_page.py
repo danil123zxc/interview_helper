@@ -10,8 +10,7 @@ from src.db import workflow_ctx
 from src.logging_config import setup_logging, init_sentry
 
 load_dotenv()
-setup_logging()
-init_sentry()
+
 logger = logging.getLogger(__name__)
 
 

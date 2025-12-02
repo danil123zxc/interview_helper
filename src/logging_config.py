@@ -22,27 +22,15 @@ def init_sentry() -> None:
     dsn = os.getenv("SENTRY_DSN")
     if not dsn:
         return
-
-    # Avoid re-initializing across Streamlit reruns or multiple imports.
-    if sentry_sdk.Hub.current.client is not None:
-        return
-
-    traces_sample_rate = float(os.getenv("SENTRY_TRACES", "0.0"))
-    profiles_sample_rate = float(os.getenv("SENTRY_PROFILES", "0.0"))
-    environment = os.getenv("SENTRY_ENV", "dev")
-    release = os.getenv("GIT_COMMIT_SHA")
-
+    
     sentry_sdk.init(
         dsn=dsn,
-        environment=environment,
-        release=release,
+        # Add data like request headers and IP for users,
+        # see https://docs.sentry.io/platforms/python/data-management/data-collected/ for more info
         send_default_pii=True,
-        traces_sample_rate=traces_sample_rate,
-        profiles_sample_rate=profiles_sample_rate,
-        integrations=[
-            LoggingIntegration(
-                level=logging.INFO,        # breadcrumb level
-                event_level=logging.ERROR, # send events at ERROR+
-            )
-        ],
+        # Enable sending logs to Sentry
+        enable_logs=True,
+        # Set traces_sample_rate to 1.0 to capture 100%
+        # of transactions for tracing.
+        traces_sample_rate=1.0,
     )

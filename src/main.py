@@ -8,7 +8,7 @@ from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.store.postgres import PostgresStore
 from langchain_community.tools.reddit_search.tool import RedditSearchRun
 from langchain_community.utilities.reddit_search import RedditSearchAPIWrapper
-from UI.schemas import ContextSchema
+from src.schemas import ContextSchema
 from src.workflow import Workflow
 from src.logging_config import setup_logging, init_sentry
 load_dotenv()
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 def main():
 
-    user_input = "Help me to prepare for the interview https://careers.lg.com/apply/detail?id=1001099"
+    user_input = "Help me to prepare for the interview https://careers.upstage.ai/o/ai-agent-engineer"
 
     context = ContextSchema(
         role="AI engineer",

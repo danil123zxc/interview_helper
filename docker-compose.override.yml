@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  app:
+    # Mount source without clobbering the image's Linux venv
+    volumes:
+      - ./src:/app/src
+      - ./UI:/app/UI
+      - ./data:/app/data
+      - ./pyproject.toml:/app/pyproject.toml
+      - ./uv.lock:/app/uv.lock
+      - ./.env:/app/.env
+      - ./README.md:/app/README.md
+      - ./docker-compose.yml:/app/docker-compose.yml
+      - ./.dockerignore:/app/.dockerignore
+    working_dir: /app
+    command: ["/app/.venv/bin/streamlit", "run", "UI/streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0"]

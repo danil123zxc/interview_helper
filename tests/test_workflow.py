@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
-from UI.schemas import ContextSchema
+from src.schemas import ContextSchema
 from src.workflow import Workflow
 
 
