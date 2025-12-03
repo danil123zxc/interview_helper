@@ -44,11 +44,11 @@ class Workflow:
             tools_instructions=tools_instructions if tools_instructions else _tools_instructions
         )
         self.tools = tools if tools else _tools
-        self.configs: List[Dict[str, Any]] = []
+        
         self.store = store
         self.checkpointer = checkpointer
-        self.backends = backend if backend else lambda x: StoreBackend(x) 
-        self.middleware = middleware if middleware else None
+        self.backend = backend 
+        self.middleware = middleware
         self.subagents = subagents if subagents else [
             {
                 "name": "analyze_agent",
@@ -68,15 +68,18 @@ class Workflow:
                 - Map phrasing to the job’s keywords/requirements without exaggerating.
                 5) Red flags: Call out any mismatches (industry/domain, seniority, leadership vs IC expectations).
 
-                Output format:
+                Save results to analysis.md file (use `write_file` tool)
+
+                analysis.md format:
                 - Fit summary (2–4 bullets).
                 - Gaps (bullets).
                 - Improved bullet suggestions (3–8 bullets) referencing the job’s language.
                 - Metrics to add (examples tailored to the candidate’s work).
                 - Keywords to weave in (from the job posting).
                 - Red flags or risks (if any).
-                - Save it to analysis.md file (use `write_file` tool)
-              
+
+                Output only 'analysis.md file saved'
+                
                 Constraints:
                 - Be concise and specific; avoid generic advice.
                 - Never fabricate metrics; propose placeholders like “[X%]”, “[N users]”, “[time saved]” when missing.
@@ -102,15 +105,21 @@ class Workflow:
                 - Cite source titles or URLs briefly when possible.
                 - If data is unavailable, say so and offer best-effort guidance.
                 - Avoid speculation; prefer verifiable facts.
-                Output format
 
+                Save results to research.md file(use `write_file` tool)
+
+                research.md should include:
                 - Company/role insights: 3–5 bullets (fact + implication).
+                - Interview process hints: 2–3 bullets (what to expect, focus areas).
                 - Industry/market: 2–3 bullets (trend + why it matters for this role).
                 - Suggested focuses: 3 bullets on what to emphasize in answers.
-                Tooling guidance
-                - Save it to research.md file(use `write_file` tool)
+                - Other candidate's opinions: 2–3 bullets summarizing Reddit or forum sentiment about the company/role.
 
-                Prefer tavily_search for discovery, tavily_extract for details; add Reddit only if social proof is requested or helpful
+                Tooling guidance
+                
+                Output only 'research.md file saved'
+
+                Prefer tavily_search for discovery, tavily_extract for extracting; add Reddit only if social proof is requested or helpful
 
                 Do not invent anything; check facts using tools.""",
                 "tools": [self.tools.get('tavily_search'), self.tools.get('tavily_extract'), self.tools.get('reddit_search')],
@@ -131,15 +140,17 @@ class Workflow:
                 - Structure: brief setup → concrete actions → measurable outcome/impact.
                 - Name specific tools/tech/processes relevant to the role/company/domain.
                 - Keep answers concise (3–6 sentences).
-                3) Save it to questions.md file (use `write_file` tool)
+                3) Save results to questions.md file(use `write_file` tool)
+                4) Output only 'questions.md file saved'
 
                 Style and constraints:
                 - Be specific, avoid generic filler.
                 - Align terminology with the given role/company/domain.
                 - Include metrics/placeholders when the user hasn’t provided them (e.g., “[reduced latency by X%]”).
-                - Don’t invent facts about the user; offer plausible phrasing with placeholders instead.
-
-                Output format:
+                - Don’t invent facts.
+                - Use tools when needed to research common questions for the role/company.
+            
+                questions.md file format:
                 - Q1: …
                 A: …
                 - Q2: …
@@ -147,6 +158,7 @@ class Workflow:
                 ...
                 """,
                 "middleware": [context_middleware],
+                "tools": [self.tools.get('tavily_search'), self.tools.get('tavily_extract'), self.tools.get('reddit_search')],
             },
             {
                 "name": "planner_agent",
@@ -162,6 +174,7 @@ class Workflow:
                 - Highlight critical dependencies or blockers.
                 - Keep it concise and actionable; no generic fluff.
                 - Save it to prep_plan.md file (use `write_file` tool)
+                - Output only 'prep_plan.md file saved'
 
                 Constraints:
                 - Do not invent user-specific facts; if missing info, note assumptions.
@@ -190,8 +203,9 @@ class Workflow:
                 2) Align to the user’s role/company/domain; keep terminology consistent.
                 3) Keep output lean and scannable.
                 4) Save it to final_response.md file (use `write_file` tool)
+                5) Output only 'final_response.md file saved'
 
-                Output structure (adapt if something is missing):
+                final_response.md file structure (adapt if something is missing):
                 - Snapshot: role/company/user profile + top 3 risks/opportunities.
                 - Prep plan: 5–8 bullets (from planner_agent).
                 - Practice Q&A: list the 10 questions with concise example answers (from question_writer).
@@ -216,7 +230,7 @@ class Workflow:
             store=self.store,
             subagents=self.subagents,
             middleware=self.middleware,
-            backend=self.backends,
+            backend=self.backend,
         )
         logger.info("Deep agent created with %d tool(s); subagents=%s", len(self.tools or []), bool(self.subagents))
 
@@ -227,8 +241,6 @@ class Workflow:
                     }
             }
         
-        self.configs.append(config)
-
         return config
     
 
@@ -236,7 +248,8 @@ class Workflow:
             self,
             user_input: str,
             context: ContextSchema,
-            config: Optional[Dict[str, Any]] = None
+            config: Optional[Dict[str, Any]] = None,
+            messages: Optional[List[Dict[str, Any]]] = None,
         ):
         """Yield message chunks as the agent streams them."""
         config = self._create_config() if not config else config
@@ -246,15 +259,23 @@ class Workflow:
             extra={"thread_id": thread_id, "role": getattr(context, "role", None)},
         )
 
-        for message_chunk, metadata in self.agent.stream(
-            {
+        collected_text: List[str] = []
+
+        payload = (
+            {"messages": messages}
+            if messages
+            else {
                 "messages": [
                     {
                         "role": "user",
                         "content": user_input,
                     },
                 ]
-            },
+            }
+        )
+
+        for message_chunk, metadata in self.agent.stream(
+            payload,
             stream_mode="messages",
             config=config,
             context=context
@@ -263,10 +284,28 @@ class Workflow:
             content = message_chunk.content
             if isinstance(content, list):
                 content = " ".join(str(c) for c in content if c)
-            snippet = (content or "")[:500].replace("\n", " ")
-            logger.debug("Chunk role:\n%s\n Content:\n%s", role, snippet)
+            if content:
+                collected_text.append(content)
             yield message_chunk
-        logger.info("Stream completed", extra={"thread_id": thread_id})
+        final_snippet = (" ".join(collected_text) if collected_text else "")[:500].replace("\n", " ")
+
+        # Log any markdown artifacts saved in the final state/checkpoint for this thread.
+        md_files = self._iter_md_files_from_state(config) or self._iter_md_files_from_checkpoint(config)
+        if md_files:
+            file_names = [md.get("name") for md in md_files if isinstance(md, dict)]
+            logger.info(
+                "Final markdown files available",
+                extra={
+                    "thread_id": thread_id,
+                    "role": getattr(context, "role", None),
+                    "files": file_names,
+                },
+            )
+
+        logger.info(
+            "Stream completed",
+            extra={"thread_id": thread_id, "role": getattr(context, "role", None), "snippet": final_snippet},
+        )
 
     def stream_content(
                 self,
@@ -288,6 +327,7 @@ class Workflow:
                 *,
                 include_md_files: bool = True,
                 config: Optional[Dict[str, Any]] = None,
+                messages: Optional[List[Dict[str, Any]]] = None,
             ):
         """Yield only AI message chunks as plain text for streaming.
 
@@ -327,6 +367,7 @@ class Workflow:
             user_input=user_input,
             context=context,
             config=config,
+            messages=messages,
         ):
             role = getattr(chunk, "type", getattr(chunk, "role", "unknown"))
             role_l = str(role).lower()
@@ -342,10 +383,14 @@ class Workflow:
         if include_md_files:
             md_files = self._iter_md_files_from_state(config) or self._iter_md_files_from_checkpoint(config)
             if md_files:
+                file_names = [md.get("name") for md in md_files if isinstance(md, dict)]
                 logger.info(
                     "Streaming %d markdown files from state/checkpoint",
                     len(md_files),
-                    extra={"thread_id": config.get("configurable", {}).get("thread_id") if isinstance(config, dict) else None},
+                    extra={
+                        "thread_id": config.get("configurable", {}).get("thread_id") if isinstance(config, dict) else None,
+                        "files": file_names,
+                    },
                 )
             for md in md_files:
                 header = f"\n[Saved file: {md['name']}]"

@@ -1,5 +1,6 @@
 import itertools
 import logging
+import uuid
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -19,9 +20,17 @@ def _ensure_state():
     st.session_state.setdefault("context_model", None)
     st.session_state.setdefault("messages", [])
     st.session_state.setdefault("context_saved", False)
-    # list of saved conversations; each entry: {"title": str, "messages": list[dict]}
+    # list of saved conversations; each entry: {"title": str, "messages": list[dict], "config": dict}
     st.session_state.setdefault("histories", [])
     st.session_state.setdefault("current_history", 0)
+    if not st.session_state.histories:
+        st.session_state.histories = [
+            {
+                "title": "Chat 1",
+                "messages": list(st.session_state.messages),
+                "config": {"configurable": {"thread_id": f"thread_{uuid.uuid4()}"}},
+            }
+        ]
 
 
 def _reset_session():
@@ -31,6 +40,20 @@ def _reset_session():
     st.session_state.messages = []
     st.session_state.histories = []
     st.session_state.current_history = 0
+
+
+def _new_chat():
+    """Start a fresh chat with its own thread/config."""
+    next_idx = len(st.session_state.histories)
+    st.session_state.histories.append(
+        {
+            "title": f"Chat {next_idx + 1}",
+            "messages": [],
+            "config": {"configurable": {"thread_id": f"thread_{uuid.uuid4()}"}},
+        }
+    )
+    st.session_state.current_history = next_idx
+    st.session_state.messages = []
 
 
 def main():
@@ -68,11 +91,12 @@ def main():
             st.rerun()
 
         st.subheader("Chat history")
-        if not st.session_state.histories:
-            st.session_state.histories = [{"title": "Chat 1", "messages": list(st.session_state.messages)}]
+        if st.button("New chat", use_container_width=True):
+            _new_chat()
+            st.rerun()
         for idx, hist in enumerate(st.session_state.histories):
             label = hist["title"]
-            if st.button(label, key=f"hist_{idx}"):
+            if st.button(label, key=f"hist_{idx}", use_container_width=True):
                 st.session_state.current_history = idx
                 st.session_state.messages = list(hist["messages"])
                 st.rerun()
@@ -93,6 +117,13 @@ def main():
         with st.chat_message("user"):
             st.markdown(prompt)
 
+        current = st.session_state.current_history
+        current_hist = st.session_state.histories[current]
+        if not current_hist.get("config"):
+            current_hist["config"] = {"configurable": {"thread_id": f"thread_{uuid.uuid4()}"}}
+        current_config = current_hist["config"]
+        conversation_messages = list(st.session_state.messages)
+
         assistant_box = st.chat_message("assistant")
         tool_placeholder = assistant_box.empty()
         error_placeholder = assistant_box.empty()
@@ -101,13 +132,20 @@ def main():
             """Stream agent output while showing a simple tool animation."""
             resp_parts = []
             spinner_cycle = itertools.cycle(
-                ["🔍 Searching & planning", "📖 Reading context", "✅ Updating todos", "🤝 Coordinating subagents"]
+                [
+                    "Searching & planning",
+                    "Reading context",
+                    "Updating todos",
+                    "Coordinating subagents",
+                ]
             )
             try:
                 with workflow_ctx() as wf:
                     for chunk in wf.stream_ai_response(
                         user_input=prompt,
                         context=st.session_state.context_model,
+                        messages=conversation_messages,
+                        config=current_config,
                     ):
                         tool_placeholder.info(next(spinner_cycle))
                         text = (
@@ -138,6 +176,7 @@ def main():
         st.session_state.histories[current] = {
             "title": f"Chat {current+1}",
             "messages": list(st.session_state.messages),
+            "config": current_config,
         }
 
 
