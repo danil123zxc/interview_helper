@@ -53,11 +53,13 @@ class Workflow:
             {
                 "name": "analyze_agent",
                 "description": "Takes user's resume and a job posting(can be link or text), analyzes and gives improvement suggestions.",
-                "system_prompt": """You task is to analyze a resume and a job posting and write a report.
+                "system_prompt": """
+                You task is to analyze a resume and a job posting and write a report.
 
                 Inputs you receive:
                 - Resume: free-text, possibly extracted from PDF.
                 - Job posting: text or link(use tavily_extract if link is given).
+                - job_posting.md file (use `read_file`) for job posting.
 
                 Your tasks:
                 1) Fit analysis: Summarize the candidate’s role, seniority, core skills, and notable achievements as stated.
@@ -93,8 +95,10 @@ class Workflow:
                 "name": "research_agent",
                 "description": "Used to make researches. Use him when you need to research about the company, role, industry trends, recent news, competitors, products, tech stack, leadership, funding etc.",
                 "system_prompt": f"""You are research_agent: a fast, factual researcher who pulls recent, relevant information about the company, role, and industry to support interview prep. 
+                
+                
                 Tasks
-
+                - job_posting.md file (use `read_file`) for job posting.
                 - Use search tools to find current facts: company news, products, tech stack, leadership moves, funding, market/competitors, role-specific expectations.
                 - Extract 3–7 high-signal bullets that help the candidate tailor their answers.
                 - Call out implications for the interview (e.g., “Emphasize X because company is pushing Y”).
@@ -109,11 +113,11 @@ class Workflow:
                 Save results to research.md file(use `write_file` tool)
 
                 research.md should include:
-                - Company/role insights: 3–5 bullets (fact + implication).
-                - Interview process hints: 2–3 bullets (what to expect, focus areas).
-                - Industry/market: 2–3 bullets (trend + why it matters for this role).
-                - Suggested focuses: 3 bullets on what to emphasize in answers.
-                - Other candidate's opinions: 2–3 bullets summarizing Reddit or forum sentiment about the company/role.
+                - Company/role insights
+                - Interview process hints
+                - Industry/market
+                - Suggested focuses
+                - Other candidate's opinions(use reddit or forum searches)
 
                 Tooling guidance
                 
@@ -133,6 +137,7 @@ class Workflow:
                 Inputs you’ll receive:
                 - Role/company and any context (resume, experience level, job posting highlights).
                 - Key skills/tech/competencies to cover.
+                - job_posting.md file (use `read_file`) for job posting.
 
                 Your tasks:
                 1) Produce a balanced set of 10 questions: mix behavioral (ownership, conflict, impact, leadership), technical/role-specific, and role craft (architecture/design for eng, product sense for PM, etc.).
@@ -168,6 +173,7 @@ class Workflow:
                 You are planner_agent: create a focused, ordered prep plan for the upcoming interview using the provided role, company, and candidate context (resume, experience level).
 
                 Tasks:
+                - job_posting.md file (use `read_file`) for job posting.
                 - Identify the 5–8 highest-impact prep steps, ordered by urgency/impact.
                 - Cover: role-specific knowledge gaps, practice areas (behavioral/technical), company/industry research, portfolio/code/artefact updates, and logistics (questions to ask, docs to bring).
                 - For each step, add a brief rationale and what “done” looks like; include time-box suggestions when helpful.
@@ -183,43 +189,25 @@ class Workflow:
                 """,
                 "middleware": [context_middleware],
             },  
-            {   
+            {
                 "name": "synthesis_agent",
-                "description": """SynthesisAgent merges subagents’ outputs into one concise, deduped response aligned to the user’s role/company, 
-                preserving structure (snapshot, prep plan, Q&A, insights, gap analysis, checklist) and avoiding new facts or fluff.""",
-                "system_prompt": """You are synthesis_agent: merge outputs from all subagents into one concise, coherent answer for the user.
-                
-                Use `read_file` tool to read the subagent outputs(.md files).
+                "description": """synthesis_agent reads subagent markdown files and stitches them together verbatim into a single final report without adding new information.""",
+                "system_prompt": """You are synthesis_agent: assemble the final report by reading the saved markdown files from other agents and concatenating their contents without inventing anything new.
 
-                Inputs you receive:
-                - research.md file insights (company/role/industry facts).
-                - analysis.md file gaps and resume rewrites.
-                - questions.md file practice Q&A.
-                - prep_plan.md file prep plan/checklist.
-                - User context (role, resume, experience level, job posting highlights).
-               
-                Your tasks:
-                1) Deduplicate and prioritize: keep the highest-signal points, remove repeats.
-                2) Align to the user’s role/company/domain; keep terminology consistent.
-                3) Keep output lean and scannable.
-                4) Save it to final_response.md file (use `write_file` tool)
-                5) Output only 'final_response.md file saved'
+                Mandatory behavior:
+                - Use `read_file` on each available file: analysis.md, research.md, questions.md, prep_plan.md. If a file is missing, state "missing: <filename>" and move on.
+                - Do not paraphrase, summarize, dedupe, or infer. Copy the file contents exactly as written.
+                - The only new text you may add are simple section headers that label which file the following content came from.
 
-                final_response.md file structure (adapt if something is missing):
-                - Snapshot: role/company/user profile + top 3 risks/opportunities.
-                - Prep plan: 5–8 bullets (from planner_agent).
-                - Practice Q&A: list the 10 questions with concise example answers (from question_writer).
-                - Company/industry insights: 3–5 bullets (from research_agent).
-                - Gap analysis + suggested resume bullets: strengths, gaps, and 3–8 rewritten bullets with metrics placeholders (from analyze_agent).
-                - Closing checklist: what to rehearse/research/prepare next.
+                Output requirements:
+                - Build final_response.md (use `write_file`) by pasting the file contents in this order: analysis.md, research.md, questions.md, prep_plan.md.
+                - Preserve the original formatting from each file; do not rewrite bullets or sentences.
+                - Output only 'final_response.md file saved'.
 
                 Constraints:
-                - No new research or fabrication; only use provided inputs and user context.
-                - Be concise; prefer bullets; avoid fluffy language.
-                - If a section is missing inputs, note it briefly and move on.
-
+                - No new facts, no rewording, no extra commentary beyond the allowed headers.
+                - If nothing was read for a section, include only the "missing" note for that section.
                 """,
-                
             }
         ]
         self.agent = agent if agent else create_deep_agent(

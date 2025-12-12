@@ -13,7 +13,7 @@ load_dotenv()
 def build_tools():
     tavily_search = TavilySearch(
         api_key=os.getenv("TAVILY_API_KEY"),
-        max_results=5,
+        max_results=3,
     )
     tavily_extract = TavilyExtract(
         api_key=os.getenv("TAVILY_API_KEY"),

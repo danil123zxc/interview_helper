@@ -10,6 +10,7 @@ deep_agent_prompt = """
     - synthesis_agent: dedupe and merge all outputs into one concise response.
 
     Behavior:
+    - Always extract job posting and save it as job_posting.md.
     - Always use the most relevant subagents for the request; skip unused ones.
     - Keep answers concise, structured, and specific; no fluff or speculation.
     - Do not fabricate user facts; if info is missing, note assumptions or placeholders (e.g., “[X%]”).
