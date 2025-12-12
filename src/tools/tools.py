@@ -1,8 +1,9 @@
-from langchain_tavily import TavilySearch, TavilyExtract
-from langchain_community.tools.reddit_search.tool import RedditSearchRun
-from langchain_community.utilities.reddit_search import RedditSearchAPIWrapper
 import os
 from dotenv import load_dotenv
+
+from langchain_tavily import TavilyExtract, TavilySearch
+from langchain_community.tools.reddit_search.tool import RedditSearchRun
+from langchain_community.utilities.reddit_search import RedditSearchAPIWrapper
 
 from src.tools.pdf_tool import load_pdf_tool
 
@@ -20,15 +21,16 @@ def build_tools():
         model="gpt-5-mini",
         temperature=0,
     )
+
     tools = {
-            'tavily_search':tavily_search,
-            'tavily_extract': tavily_extract,
-            'load_pdf_tool': load_pdf_tool
-             }
+        "tavily_search": tavily_search,
+        "tavily_extract": tavily_extract,
+        "load_pdf_tool": load_pdf_tool,
+    }
 
     instructions = [
-        "Use `tavily_search` to find recent company/industry facts",
-        "Use `tavily_extract` to pull specifics from result URLs. Use this tool after search results.",
+        "Use `tavily_search` to find recent company/industry facts.",
+        "Use `tavily_extract` to pull specifics from result URLs (after search results).",
     ]
 
     reddit_id = os.getenv("REDDIT_CLIENT_ID")
@@ -42,8 +44,10 @@ def build_tools():
                     reddit_user_agent="interview_helper",
                 )
             )
-            tools['reddit_search'] = reddit_search
-            instructions.append("Use `reddit_tool` to search Reddit. Think about every parameter before calling this tool.")
+            tools["reddit_search"] = reddit_search
+            instructions.append(
+                "Use `reddit_search` for social proof/opinions; only when relevant to the task."
+            )
         except Exception:
             pass
 

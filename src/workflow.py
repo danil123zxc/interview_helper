@@ -1,38 +1,37 @@
-
 import logging
+from typing import Any, Dict, List, Optional
 
 from deepagents import create_deep_agent
 from langchain.chat_models import init_chat_model
-from langchain.tools import BaseTool
-from typing import List, Optional, Any, Union, Dict
 from langchain.chat_models.base import BaseChatModel
-from src.prompts import deep_agent_prompt
-
-from langgraph.store.base import BaseStore
+from langchain.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
-from langsmith import uuid7
-from src.schemas import ContextSchema
 from langgraph.graph.state import CompiledStateGraph
-from src.tools.tools import build_tools
-from deepagents.backends import StoreBackend
+from langgraph.store.base import BaseStore
+from langsmith import uuid7
+
+from src.prompts import deep_agent_prompt
+from src.schemas import ContextSchema
 from src.tools.context_middleware import context_middleware
+from src.tools.tools import build_tools
 
 logger = logging.getLogger(__name__)
 
+
 class Workflow:
-    def __init__(self, 
-                 agent: Optional[CompiledStateGraph] = None,
-                 llm: Optional[BaseChatModel]=None, 
-                 system_prompt: Optional[str]=None, 
-                 tools: Optional[Dict[str, BaseTool]]=None,
-                 tools_instructions: Optional[str]="",
-                 store: Optional[BaseStore] = None, 
-                 checkpointer: Optional[BaseCheckpointSaver] = None,
-                 subagents: Optional[Dict[str, Any]] = None,
-                 backend = None,
-                 middleware: Optional[List[Any]] = None,
-                 ):
-      
+    def __init__(
+        self,
+        agent: Optional[CompiledStateGraph] = None,
+        llm: Optional[BaseChatModel] = None,
+        system_prompt: Optional[str] = None,
+        tools: Optional[Dict[str, BaseTool]] = None,
+        tools_instructions: Optional[str] = "",
+        store: Optional[BaseStore] = None,
+        checkpointer: Optional[BaseCheckpointSaver] = None,
+        subagents: Optional[Dict[str, Any]] = None,
+        backend=None,
+        middleware: Optional[List[Any]] = None,
+    ):
         self.llm = llm if llm else init_chat_model(
             model="gpt-5-mini",
             model_provider="openai",
@@ -40,175 +39,180 @@ class Workflow:
         )
         _tools, _tools_instructions = build_tools()
 
-        self.system_prompt = system_prompt if system_prompt else deep_agent_prompt.format(
-            tools_instructions=tools_instructions if tools_instructions else _tools_instructions
-        )
+        self.system_prompt = system_prompt if system_prompt else deep_agent_prompt
         self.tools = tools if tools else _tools
-        
+
         self.store = store
         self.checkpointer = checkpointer
-        self.backend = backend 
+        self.backend = backend
         self.middleware = middleware
         self.subagents = subagents if subagents else [
             {
+                "name": "job_posting_ingestor",
+                "description": "Normalize any provided job posting (text or link) into job_posting.md for downstream agents.",
+                "system_prompt": """You are job_posting_ingestor. Capture the job posting into job_posting.md for others to reuse.
+
+                Inputs: pasted job posting text or a link. If link, use tavily_extract. If text, save as-is.
+
+                Steps:
+                1) If a link is present, use tavily_extract to pull posting details. If it fails, note failure and continue with available text.
+                2) Save the posting to job_posting.md using write_file. Include source URL if available.
+                3) If nothing was provided, write "missing: job_posting" to job_posting.md.
+
+                Constraints: no fabrication; keep raw posting content intact; be concise.
+                Output only 'job_posting.md saved'.
+                """,
+                "tools": [self.tools.get("tavily_extract")],
+                "middleware": [context_middleware],
+            },
+            {
                 "name": "analyze_agent",
-                "description": "Takes user's resume and a job posting(can be link or text), analyzes and gives improvement suggestions.",
-                "system_prompt": """
-                You task is to analyze a resume and a job posting and write a report.
+                "description": "Analyze resume vs job posting; identify fit, gaps, rewrites with metrics placeholders.",
+                "system_prompt": """You are analyze_agent. Analyze the candidate resume against the job posting and save analysis.md via write_file.
 
-                Inputs you receive:
-                - Resume: free-text, possibly extracted from PDF.
-                - Job posting: text or link(use tavily_extract if link is given).
-                - job_posting.md file (use `read_file`) for job posting.
+                Inputs:
+                - Resume/context provided.
+                - job_posting.md (read via read_file). If missing, state it and continue with best effort.
+                - Job posting link or text (use tavily_extract only if needed and not already in job_posting.md).
 
-                Your tasks:
-                1) Fit analysis: Summarize the candidate’s role, seniority, core skills, and notable achievements as stated.
-                2) Gap check: Identify missing or weak requirements vs the posting (skills, tools, scope/impact, domain, metrics).
-                3) Proof and evidence: Note where claims lack quantifiable proof or context; highlight sections needing metrics or outcomes.
-                4) Rewrite suggestions: Provide concrete bullet edits the candidate can paste into their resume:
-                - Use strong action verbs, specific tech, scope (team/scale), and measurable impact (%, $, time).
-                - Map phrasing to the job’s keywords/requirements without exaggerating.
-                5) Red flags: Call out any mismatches (industry/domain, seniority, leadership vs IC expectations).
-
-                Save results to analysis.md file (use `write_file` tool)
+                Tasks:
+                1) Fit summary: candidate role, seniority, core skills, notable achievements (concise bullets).
+                2) Gaps: missing/weak requirements vs posting (skills, tools, scope/impact, domain, metrics).
+                3) Proof check: where claims lack metrics/context; call out sections needing evidence.
+                4) Rewrite suggestions: concrete bullet edits the candidate can paste; action verbs, specific tech, scope, measurable impact; map to posting keywords without exaggeration.
+                5) Red flags: mismatches (industry/domain, seniority, leadership vs IC expectations).
+                6) Metrics to add: tailored placeholders like [X%], [N users], [time saved].
+                7) Keywords to weave in: from the posting.
 
                 analysis.md format:
-                - Fit summary (2–4 bullets).
-                - Gaps (bullets).
-                - Improved bullet suggestions (3–8 bullets) referencing the job’s language.
-                - Metrics to add (examples tailored to the candidate’s work).
-                - Keywords to weave in (from the job posting).
-                - Red flags or risks (if any).
+                - Fit summary (2-3 bullets)
+                - Gaps (bullets)
+                - Improved bullet suggestions (3-5 bullets)
+                - Metrics to add (bullets)
+                - Keywords to weave in (bullets)
+                - Red flags or risks (bullets, if any)
 
-                Output only 'analysis.md file saved'
-                
                 Constraints:
-                - Be concise and specific; avoid generic advice.
-                - Never fabricate metrics; propose placeholders like “[X%]”, “[N users]”, “[time saved]” when missing.
-                - Always ground suggestions in the given resume content; if something is absent, call it out as missing rather than inventing it.
-                
+                - Be concise and specific; no generic filler.
+                - Never fabricate metrics; use placeholders when missing.
+                - Ground everything in the provided resume/posting; if info is absent, say so.
+
+                Output only 'analysis.md file saved'.
                 """,
-                "tools":[self.tools.get('tavily_extract')],
+                "tools": [
+                    
+                    self.tools.get("tavily_extract"),
+                ],
                 "middleware": [context_middleware],
             },
             {
                 "name": "research_agent",
-                "description": "Used to make researches. Use him when you need to research about the company, role, industry trends, recent news, competitors, products, tech stack, leadership, funding etc.",
-                "system_prompt": f"""You are research_agent: a fast, factual researcher who pulls recent, relevant information about the company, role, and industry to support interview prep. 
-                
-                
-                Tasks
-                - job_posting.md file (use `read_file`) for job posting.
-                - Use search tools to find current facts: company news, products, tech stack, leadership moves, funding, market/competitors, role-specific expectations.
-                - Extract 3–7 high-signal bullets that help the candidate tailor their answers.
-                - Call out implications for the interview (e.g., “Emphasize X because company is pushing Y”).
-                
-                Constraints/Style
+                "description": "Research company/role/industry; return concise bullets with sources and implications.",
+                "system_prompt": """You are research_agent: a fast, factual researcher for interview prep.
 
-                - Be concise and specific; no fluff.
-                - Cite source titles or URLs briefly when possible.
-                - If data is unavailable, say so and offer best-effort guidance.
-                - Avoid speculation; prefer verifiable facts.
+                Tasks:
+                - Read job_posting.md (via read_file) if present; otherwise note missing.
+                - Use search tools to find current facts (prefer past 12-18 months): company news, products, tech stack, leadership moves, funding, market/competitors, role-specific expectations.
+                - Extract 3-6 high-signal bullets that help the candidate tailor answers.
+                - For each section, add a short implication for interview prep (e.g., "Emphasize X because company is pushing Y").
 
-                Save results to research.md file(use `write_file` tool)
+                Constraints/Style:
+                - Be concise and specific; no fluff. Cite source titles or URLs briefly.
+                - If data is unavailable, say so and offer best-effort guidance. Avoid speculation.
 
-                research.md should include:
+                Save to research.md via write_file.
+
+                research.md sections:
                 - Company/role insights
-                - Interview process hints
+                - Interview process hints (if found)
                 - Industry/market
                 - Suggested focuses
-                - Other candidate's opinions(use reddit or forum searches)
+                - Social proof (Reddit/forums) if relevant
 
-                Tooling guidance
-                
-                Output only 'research.md file saved'
+                Output only 'research.md file saved'.
+                """,
+                "tools": [
 
-                Prefer tavily_search for discovery, tavily_extract for extracting; add Reddit only if social proof is requested or helpful
-
-                Do not invent anything; check facts using tools.""",
-                "tools": [self.tools.get('tavily_search'), self.tools.get('tavily_extract'), self.tools.get('reddit_search')],
-                
+                    self.tools.get("tavily_search"),
+                    self.tools.get("tavily_extract"),
+                    self.tools.get("reddit_search"),
+                ],
+                "middleware": [context_middleware],
             },
             {
                 "name": "question_writer",
-                "description":"Generates a balanced set of 10 interview questions (behavioral + role-specific) with concise, structured example answers.",
-                "system_prompt":"""You are question_writer: an interview prep specialist who writes concise, role-specific practice questions with strong example answers.
+                "description": "Generates a balanced set of 10 interview questions (behavioral + role-specific) with concise, structured example answers.",
+                "system_prompt": """You are question_writer: write concise, role-specific practice questions with strong example answers.
 
-                Inputs you’ll receive:
-                - Role/company and any context (resume, experience level, job posting highlights).
-                - Key skills/tech/competencies to cover.
-                - job_posting.md file (use `read_file`) for job posting.
+                Inputs:
+                - Role/company context, resume, experience level.
+                - job_posting.md (read via read_file); if missing, note and proceed best-effort.
 
-                Your tasks:
-                1) Produce a balanced set of 10 questions: mix behavioral (ownership, conflict, impact, leadership), technical/role-specific, and role craft (architecture/design for eng, product sense for PM, etc.).
-                2) Provide tight example answers for each question that model structure and depth:
-                - Structure: brief setup → concrete actions → measurable outcome/impact.
-                - Name specific tools/tech/processes relevant to the role/company/domain.
-                - Keep answers concise (3–6 sentences).
-                3) Save results to questions.md file(use `write_file` tool)
-                4) Output only 'questions.md file saved'
+                Tasks:
+                1) Produce 10 questions: mix behavioral (ownership, conflict, impact, leadership) and role-specific (projects/tech/architecture/design for eng, product sense for PM, etc.).
+                2) Provide a 3-4 sentence example answer for each: brief setup -> concrete actions -> measurable outcome/impact. Name specific tools/tech/processes relevant to the role/company/domain. Use metrics placeholders like [X%].
+                3) Save to questions.md via write_file.
+                4) Output only 'questions.md file saved'.
 
-                Style and constraints:
-                - Be specific, avoid generic filler.
-                - Align terminology with the given role/company/domain.
-                - Include metrics/placeholders when the user hasn’t provided them (e.g., “[reduced latency by X%]”).
-                - Don’t invent facts.
-                - Use tools when needed to research common questions for the role/company.
-            
-                questions.md file format:
-                - Q1: …
-                A: …
-                - Q2: …
-                A: …
+                Constraints:
+                - Be specific; avoid generic filler. Align terminology with role/company/domain.
+                - Do not invent facts; use placeholders when needed.
+                - Use tools if research is needed for role/company norms.
+
+                questions.md format:
+                - Q1: ...
+                A: ...
+                - Q2: ...
+                A: ...
                 ...
                 """,
                 "middleware": [context_middleware],
-                "tools": [self.tools.get('tavily_search'), self.tools.get('tavily_extract'), self.tools.get('reddit_search')],
+                "tools": [
+                    
+                    self.tools.get("tavily_search"),
+                    self.tools.get("tavily_extract"),
+                    self.tools.get("reddit_search"),
+                ],
             },
             {
                 "name": "planner_agent",
-                "description":""" Builds a concise, ordered prep plan (5–8 high-impact steps) for the interview based on role, company, 
-                and candidate context—covering practice focus, research, artifacts, and logistics—with rationales, “done” criteria, and notes on dependencies or blockers.""",
-                "system_prompt":"""
-                You are planner_agent: create a focused, ordered prep plan for the upcoming interview using the provided role, company, and candidate context (resume, experience level).
+                "description": "Builds a concise, ordered prep plan (5–7 steps) with rationale and done criteria.",
+                "system_prompt": """You are planner_agent: create a focused, ordered prep plan for the upcoming interview using the provided role, company, and candidate context.
 
                 Tasks:
-                - job_posting.md file (use `read_file`) for job posting.
-                - Identify the 5–8 highest-impact prep steps, ordered by urgency/impact.
-                - Cover: role-specific knowledge gaps, practice areas (behavioral/technical), company/industry research, portfolio/code/artefact updates, and logistics (questions to ask, docs to bring).
-                - For each step, add a brief rationale and what “done” looks like; include time-box suggestions when helpful.
-                - Highlight critical dependencies or blockers.
-                - Keep it concise and actionable; no generic fluff.
-                - Save it to prep_plan.md file (use `write_file` tool)
-                - Output only 'prep_plan.md file saved'
+                - Read job_posting.md, analysis.md, research.md (via read_file); if missing, note it.
+                - Identify the 5-7 highest-impact prep steps, ordered by urgency/impact.
+                - Cover: role-specific gaps, practice areas (behavioral/technical), company/industry research, portfolio/code/artifact updates, logistics (questions to ask, docs to bring).
+                - For each step, add a brief rationale, what "done" looks like, and a time-box hint. Highlight dependencies or blockers.
+                - Save to prep_plan.md via write_file. Output only 'prep_plan.md file saved'.
 
                 Constraints:
-                - Do not invent user-specific facts; if missing info, note assumptions.
-                - Use role/company/domain terminology.
+                - No generic fluff. Use role/company/domain terminology.
+                - If info is missing, note assumptions.
                 - Prefer fewer, higher-leverage steps over long checklists.
                 """,
                 "middleware": [context_middleware],
-            },  
+            },
             {
                 "name": "synthesis_agent",
-                "description": """synthesis_agent reads subagent markdown files and stitches them together verbatim into a single final report without adding new information.""",
-                "system_prompt": """You are synthesis_agent: assemble the final report by reading the saved markdown files from other agents and concatenating their contents without inventing anything new.
+                "description": "Reads subagent markdown files and stitches them into a single final report with light dedupe and no new facts.",
+                "system_prompt": """You are synthesis_agent: assemble the final report by reading saved markdown files and merging them without inventing new information.
 
                 Mandatory behavior:
-                - Use `read_file` on each available file: analysis.md, research.md, questions.md, prep_plan.md. If a file is missing, state "missing: <filename>" and move on.
-                - Do not paraphrase, summarize, dedupe, or infer. Copy the file contents exactly as written.
-                - The only new text you may add are simple section headers that label which file the following content came from.
+                - Use read_file on each: analysis.md, research.md, questions.md, prep_plan.md. If a file is missing, include "missing: <filename>".
+                - Lightly deduplicate obvious repeats, but do not add new facts or paraphrase beyond trimming duplicates.
+                - Use simple section headers labeling which file the following content came from.
 
                 Output requirements:
-                - Build final_response.md (use `write_file`) by pasting the file contents in this order: analysis.md, research.md, questions.md, prep_plan.md.
-                - Preserve the original formatting from each file; do not rewrite bullets or sentences.
+                - Build final_response.md (write_file) by pasting contents in order: analysis.md, research.md, questions.md, prep_plan.md.
+                - Preserve original formatting; only minimal dedupe allowed.
                 - Output only 'final_response.md file saved'.
 
                 Constraints:
-                - No new facts, no rewording, no extra commentary beyond the allowed headers.
-                - If nothing was read for a section, include only the "missing" note for that section.
+                - No new facts, no extra commentary beyond headers and minor dedupe.
+                - If nothing was read for a section, include only the "missing" note.
                 """,
-            }
+            },
         ]
         self.agent = agent if agent else create_deep_agent(
             model=self.llm,
@@ -223,22 +227,15 @@ class Workflow:
         logger.info("Deep agent created with %d tool(s); subagents=%s", len(self.tools or []), bool(self.subagents))
 
     def _create_config(self) -> Dict[str, Any]:
-        config = {
-                "configurable": {
-                    "thread_id": f"thread_{uuid7()}"
-                    }
-            }
-        
-        return config
-    
+        return {"configurable": {"thread_id": f"thread_{uuid7()}"}}
 
     def stream_all(
-            self,
-            user_input: str,
-            context: ContextSchema,
-            config: Optional[Dict[str, Any]] = None,
-            messages: Optional[List[Dict[str, Any]]] = None,
-        ):
+        self,
+        user_input: str,
+        context: ContextSchema,
+        config: Optional[Dict[str, Any]] = None,
+        messages: Optional[List[Dict[str, Any]]] = None,
+    ):
         """Yield message chunks as the agent streams them."""
         config = self._create_config() if not config else config
         thread_id = config["configurable"].get("thread_id") if isinstance(config, dict) else None
@@ -248,36 +245,17 @@ class Workflow:
         )
 
         collected_text: List[str] = []
+        payload = {"messages": messages} if messages else {"messages": [{"role": "user", "content": user_input}]}
 
-        payload = (
-            {"messages": messages}
-            if messages
-            else {
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": user_input,
-                    },
-                ]
-            }
-        )
-
-        for message_chunk, metadata in self.agent.stream(
-            payload,
-            stream_mode="messages",
-            config=config,
-            context=context
-        ):
-            role = getattr(message_chunk, "type", getattr(message_chunk, "role", "unknown"))
+        for message_chunk, metadata in self.agent.stream(payload, stream_mode="messages", config=config, context=context):
             content = message_chunk.content
             if isinstance(content, list):
                 content = " ".join(str(c) for c in content if c)
             if content:
                 collected_text.append(content)
             yield message_chunk
-        final_snippet = (" ".join(collected_text) if collected_text else "")[:500].replace("\n", " ")
 
-        # Log any markdown artifacts saved in the final state/checkpoint for this thread.
+        final_snippet = (" ".join(collected_text) if collected_text else "")[:500].replace("\n", " ")
         md_files = self._iter_md_files_from_state(config) or self._iter_md_files_from_checkpoint(config)
         if md_files:
             file_names = [md.get("name") for md in md_files if isinstance(md, dict)]
@@ -295,43 +273,28 @@ class Workflow:
             extra={"thread_id": thread_id, "role": getattr(context, "role", None), "snippet": final_snippet},
         )
 
-    def stream_content(
-                self,
-                user_input: str,
-                context: ContextSchema
-            ):
+    def stream_content(self, user_input: str, context: ContextSchema):
         """Yield content (any role) as strings."""
-        for chunk in self.stream_all(
-            user_input=user_input,
-            context=context,
-        ):
+        for chunk in self.stream_all(user_input=user_input, context=context):
             yield chunk.content
 
-
     def stream_ai_response(
-                self,
-                user_input: str,
-                context: ContextSchema,
-                *,
-                include_md_files: bool = True,
-                config: Optional[Dict[str, Any]] = None,
-                messages: Optional[List[Dict[str, Any]]] = None,
-            ):
-        """Yield only AI message chunks as plain text for streaming.
-
-        If include_md_files is True, any .md files found in the graph state
-        (state.files) are streamed after the model output. Falls back to
-        checkpoint lookup when available.
-        """
+        self,
+        user_input: str,
+        context: ContextSchema,
+        *,
+        include_md_files: bool = True,
+        config: Optional[Dict[str, Any]] = None,
+        messages: Optional[List[Dict[str, Any]]] = None,
+    ):
+        """Yield only AI message chunks as plain text for streaming."""
         allowed_roles = {"ai", "assistant", "assistant_message"}
 
         def _flatten_text(content):
             if content is None:
                 return []
-            # Already a string
             if isinstance(content, str):
                 return [content]
-            # List of segments
             if isinstance(content, list):
                 pieces = []
                 for item in content:
@@ -344,13 +307,12 @@ class Workflow:
                     else:
                         pieces.append(str(item))
                 return pieces
-            # Objects with .text
             if hasattr(content, "text"):
                 return [str(getattr(content, "text", ""))]
             return [str(content)]
-        
+
         config = self._create_config() if not config else config
-        
+
         for chunk in self.stream_all(
             user_input=user_input,
             context=context,
@@ -359,8 +321,6 @@ class Workflow:
         ):
             role = getattr(chunk, "type", getattr(chunk, "role", "unknown"))
             role_l = str(role).lower()
-            # Accept common assistant roles, any role containing "assistant"/"ai",
-            # and any non-user/human role with content (to avoid silently dropping output).
             is_user = any(tag in role_l for tag in ("user", "human"))
             role_ok = role_l in allowed_roles or any(tag in role_l for tag in ("assistant", "ai")) or not is_user
             if role_ok:
@@ -381,8 +341,7 @@ class Workflow:
                     },
                 )
             for md in md_files:
-                header = f"\n[Saved file: {md['name']}]"
-                yield header
+                yield f"\n[Saved file: {md['name']}]"
                 yield "\n"
                 yield md["text"]
 
@@ -398,7 +357,6 @@ class Workflow:
         if snapshot is None:
             return []
 
-        state_obj = None
         if isinstance(snapshot, dict):
             state_obj = snapshot.get("values") or snapshot.get("state") or snapshot
         else:
@@ -455,24 +413,10 @@ class Workflow:
         _walk(obj)
         return results
 
-    def _stream_response(
-            self,
-            user_input: str, 
-            context: ContextSchema
-            ) -> None:
-        for chunk in self.stream_ai_response(
-            user_input=user_input,
-            context=context,
-        ):
-            print(chunk, end='|', flush=True)
+    def _stream_response(self, user_input: str, context: ContextSchema) -> None:
+        for chunk in self.stream_ai_response(user_input=user_input, context=context):
+            print(chunk, end="|", flush=True)
 
-    def execute_agent(
-            self,
-            input: str,
-            context: ContextSchema,
-        ) -> None:
+    def execute_agent(self, input: str, context: ContextSchema) -> None:
         """Run the agent once and print streamed AI output."""
-        self._stream_response(
-            user_input=input,
-            context=context,
-        )
+        self._stream_response(user_input=input, context=context)
