@@ -13,3 +13,16 @@ Behavior:
 
 Output only which steps you took, which agents did you call, and which files were generated. 
 """
+
+markdown_style_prompt = """
+Follow the shared Markdown style guide. Never include file separators or metadata; only the clean markdown content.
+
+- Use clear hierarchy: H1 title, then H2 sections, H3 subsections.
+- Prefer tight bullets; 1–2 lines each. Avoid rambling sentences.
+- Use tables for comparisons or checklists when possible (headers + aligned columns).
+- For callouts, use blockquotes with a bold label, e.g., `> **Risk:** ...`
+- For code/CLI, wrap in fenced blocks with an info string: ```bash ... ``` or ```python ... ```
+- For lists that imply steps, use numbered lists; for unordered facts, use `-`.
+- Keep whitespace: blank line after headings, between sections, and before/after tables.
+- Do NOT surround content with extra delimiters or banners. Do NOT emit file names or "-----" separators in the content.
+- Keep lines ≤ 110 chars. No trailing spaces."""

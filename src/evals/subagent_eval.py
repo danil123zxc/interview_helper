@@ -137,8 +137,7 @@ def _load_examples(path: str) -> List[Dict[str, str]]:
             f"System prompt:\n{row.get('system_prompt', '').strip()}",
             f"User prompt:\n{row.get('user_prompt', '').strip()}",
         ]
-        if row.get("context7"):
-            ctx_parts.append(f"Docs context:\n{row['context7']}")
+       
         examples.append(
             {
                 "input": "\n\n".join(ctx_parts),

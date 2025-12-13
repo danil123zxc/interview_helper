@@ -10,7 +10,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
 from langsmith import uuid7
 
-from src.prompts import deep_agent_prompt
+from src.prompts import deep_agent_prompt, markdown_style_prompt
 from src.schemas import ContextSchema
 from src.tools.context_middleware import context_middleware
 from src.tools.tools import build_tools
@@ -50,7 +50,7 @@ class Workflow:
             {
                 "name": "job_posting_ingestor",
                 "description": "Normalize any provided job posting (text or link) into job_posting.md for downstream agents.",
-                "system_prompt": """You are job_posting_ingestor. Capture the job posting into job_posting.md for others to reuse.
+                "system_prompt": f"""You are job_posting_ingestor. Capture the job posting into job_posting.md for others to reuse.
 
                 Inputs: pasted job posting text or a link. If link, use tavily_extract. If text, save as-is.
 
@@ -61,6 +61,7 @@ class Workflow:
 
                 Constraints: no fabrication; keep raw posting content intact; be concise.
                 Output only 'job_posting.md saved'.
+                {markdown_style_prompt}
                 """,
                 "tools": [self.tools.get("tavily_extract")],
                 "middleware": [context_middleware],
@@ -68,7 +69,7 @@ class Workflow:
             {
                 "name": "analyze_agent",
                 "description": "Analyze resume vs job posting; identify fit, gaps, rewrites with metrics placeholders.",
-                "system_prompt": """You are analyze_agent. Analyze the candidate resume against the job posting and save analysis.md via write_file.
+                "system_prompt": f"""You are analyze_agent. Analyze the candidate resume against the job posting and save analysis.md via write_file.
 
                 Inputs:
                 - Resume/context provided.
@@ -98,6 +99,36 @@ class Workflow:
                 - Ground everything in the provided resume/posting; if info is absent, say so.
 
                 Output only 'analysis.md file saved'.
+
+                {markdown_style_prompt}
+
+                Example analysis.md:
+                # Candidate vs Role Analysis
+
+                ## Fit Summary
+                - ...
+                - ...
+
+                ## Gaps & Mitigations
+                - ...
+                - ...
+
+                ## Improved Bullet Suggestions (drop-in)
+                - ...
+                - ...
+
+                ## Metrics to Add
+                - ...
+                - ...
+
+                ## Keywords to Weave In
+                - ...
+                - ...
+
+                ## Red Flags / Risks
+                - ...
+                - ...
+
                 """,
                 "tools": [
                     
@@ -108,7 +139,7 @@ class Workflow:
             {
                 "name": "research_agent",
                 "description": "Research company/role/industry; return concise bullets with sources and implications.",
-                "system_prompt": """You are research_agent: a fast, factual researcher for interview prep.
+                "system_prompt": f"""You are research_agent: a fast, factual researcher for interview prep.
 
                 Tasks:
                 - Read job_posting.md (via read_file) if present; otherwise note missing.
@@ -130,6 +161,35 @@ class Workflow:
                 - Social proof (Reddit/forums) if relevant
 
                 Output only 'research.md file saved'.
+
+                {markdown_style_prompt}
+                Example research.md:
+                # Company / Role Research — Upstage
+
+                ## Company / Role Insights
+                - ...
+                - ...
+
+                ## Recent News (sources)
+                - ...
+                - ...
+
+                ## Role Expectations
+                - ...
+                - ...
+
+                ## Competitors & Implications
+                - ...
+                - ...
+
+                ## Suggested Focus for Interviews
+                - ...
+                - ...
+
+                ## Social Proof
+                - ...
+                - ...
+
                 """,
                 "tools": [
 
@@ -142,7 +202,7 @@ class Workflow:
             {
                 "name": "question_writer",
                 "description": "Generates a balanced set of 10 interview questions (behavioral + role-specific) with concise, structured example answers.",
-                "system_prompt": """You are question_writer: write concise, role-specific practice questions with strong example answers.
+                "system_prompt": f"""You are question_writer: write concise, role-specific practice questions with strong example answers.
 
                 Inputs:
                 - Role/company context, resume, experience level.
@@ -160,11 +220,14 @@ class Workflow:
                 - Use tools if research is needed for role/company norms.
 
                 questions.md format:
-                - Q1: ...
+                # Practice Questions (10)
+
+                - Q1: Design an agent for invoice extraction with exception handling. How ensure factuality and recovery?
+                A: [3–4 sentences: architecture, grounding, validation, human-in-loop, outcome with metric placeholder]
+
+                - Q2: How to add VLM to document ingestion? Describe tools/models, eval metrics, and safety.
                 A: ...
-                - Q2: ...
-                A: ...
-                ...
+                {markdown_style_prompt}
                 """,
                 "middleware": [context_middleware],
                 "tools": [
@@ -177,7 +240,7 @@ class Workflow:
             {
                 "name": "planner_agent",
                 "description": "Builds a concise, ordered prep plan (5–7 steps) with rationale and done criteria.",
-                "system_prompt": """You are planner_agent: create a focused, ordered prep plan for the upcoming interview using the provided role, company, and candidate context.
+                "system_prompt": f"""You are planner_agent: create a focused, ordered prep plan for the upcoming interview using the provided role, company, and candidate context.
 
                 Tasks:
                 - Read job_posting.md, analysis.md, research.md (via read_file); if missing, note it.
@@ -190,13 +253,27 @@ class Workflow:
                 - No generic fluff. Use role/company/domain terminology.
                 - If info is missing, note assumptions.
                 - Prefer fewer, higher-leverage steps over long checklists.
+
+                {markdown_style_prompt}
+
+                Example prep_plan.md:
+
+                # Prep Plan — Upstage AI Agent Engineer
+
+                ## Notes
+                - Inputs: resume + job_posting.md + analysis/research (if available). Target 5–7 steps.
+
+                ## Steps (ordered)
+                1) Refresh resume/portfolio (PDF + demo links)
+                2) ...
+
                 """,
                 "middleware": [context_middleware],
             },
             {
                 "name": "synthesis_agent",
                 "description": "Reads subagent markdown files and stitches them into a single final report with light dedupe and no new facts.",
-                "system_prompt": """You are synthesis_agent: assemble the final report by reading saved markdown files and merging them without inventing new information.
+                "system_prompt": f"""You are synthesis_agent: assemble the final report by reading saved markdown files and merging them without inventing new information.
 
                 Mandatory behavior:
                 - Use read_file on each: analysis.md, research.md, questions.md, prep_plan.md. If a file is missing, include "missing: <filename>".
@@ -211,6 +288,24 @@ class Workflow:
                 Constraints:
                 - No new facts, no extra commentary beyond headers and minor dedupe.
                 - If nothing was read for a section, include only the "missing" note.
+
+                {markdown_style_prompt}
+
+                Example final_response.md:
+
+                # Final Interview Prep Packet
+
+                ## From analysis.md
+                - [Paste fit/gaps/bullets; keep headings]
+
+                ## From research.md
+                - [Paste company/role insights, news, competitors, focuses]
+
+                ## From questions.md
+                - [Paste Q&A list]
+
+                ## From prep_plan.md
+                - [Paste ordered steps + risks]
                 """,
             },
         ]
@@ -344,6 +439,12 @@ class Workflow:
                 yield f"\n[Saved file: {md['name']}]"
                 yield "\n"
                 yield md["text"]
+
+    def list_md_files(self, config: Optional[Dict[str, Any]] = None) -> List[Dict[str, str]]:
+        """Return markdown files captured in state/checkpoint for the given config."""
+        if not config:
+            config = self._create_config()
+        return self._iter_md_files_from_state(config) or self._iter_md_files_from_checkpoint(config)
 
     def _iter_md_files_from_state(self, config: Optional[Dict[str, Any]]):
         """Collect .md files from the latest graph state (state.files)."""
