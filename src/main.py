@@ -11,6 +11,7 @@ from langchain_community.utilities.reddit_search import RedditSearchAPIWrapper
 from src.schemas import ContextSchema
 from src.workflow import Workflow
 from src.logging_config import setup_logging, init_sentry
+from src.db import workflow_ctx
 load_dotenv()
 
 setup_logging()
@@ -86,26 +87,16 @@ def main():
         years_of_experience=0
     )
     logger.info("Starting workflow run with Postgres checkpointing")
-    with (
-            PostgresStore.from_conn_string(os.getenv("DB_URL")) as store,
-            PostgresSaver.from_conn_string(os.getenv("DB_URL")) as checkpointer,
-        ):
-            store.setup()
-            checkpointer.setup()
-            logger.info("Postgres store and checkpointer initialized")
 
-            workflow = Workflow(
-                store=store,
-                checkpointer=checkpointer,
-              
-            )
-            workflow.execute_agent(
-                input=user_input,
-                context=context
-            )
-            logger.info("Workflow run finished")
+    with workflow_ctx() as workflow:
+
+        res = workflow.agent.invoke(user_input, config=workflow.config, context=context)
+        logger.debug(workflow.agent.get_state_history(workflow.config))
+
+        logger.info("Workflow run finished")
 
 if __name__ == "__main__": 
     main()
 
+    
     

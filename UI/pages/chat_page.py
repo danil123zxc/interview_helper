@@ -148,6 +148,7 @@ def main():
             )
             try:
                 with workflow_ctx() as wf:
+                    
                     for chunk in wf.stream_ai_response(
                         user_input=prompt,
                         context=st.session_state.context_model,
@@ -163,7 +164,10 @@ def main():
                         )
                         resp_parts.append(text)
                         yield text
+
                     md_files = wf.list_md_files(config=current_config)
+                    logger.debug("State history:\n" + wf.agent.get_state_history(current_config))
+
                 tool_placeholder.empty()
                 if resp_parts:
                     st.session_state.messages.append({"role": "assistant", "content": "".join(resp_parts)})
@@ -177,6 +181,7 @@ def main():
                 st.session_state.messages.append({"role": "assistant", "content": f"Agent error: {exc}"})
 
         assistant_box.write_stream(response_stream())
+        
 
         # Persist current conversation into histories
         current = st.session_state.current_history

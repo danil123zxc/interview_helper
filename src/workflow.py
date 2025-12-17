@@ -54,7 +54,8 @@ class Workflow:
         self.store = store
         self.checkpointer = checkpointer
         self.backend = backend
-        self.middleware = middleware or PIIMiddleware("email")
+        self.middleware = middleware or [PIIMiddleware("email")]
+        self.config = {}
         self.subagents = subagents if subagents else [
             {
                 "name": "job_posting_ingestor",
@@ -127,6 +128,7 @@ class Workflow:
     ):
         """Yield message chunks as the agent streams them."""
         config = self._create_config() if not config else config
+        self.config = config
         thread_id = config["configurable"].get("thread_id") if isinstance(config, dict) else None
         logger.info(
             "Starting stream",
@@ -201,6 +203,7 @@ class Workflow:
             return [str(content)]
 
         config = self._create_config() if not config else config
+        self.config = config
 
         for chunk in self.stream_all(
             user_input=user_input,
