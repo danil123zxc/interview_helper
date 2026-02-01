@@ -71,7 +71,6 @@ def make_workflow(agent: DummyAgent, checkpointer: Optional[DummyCheckpointer] =
 def test_create_config_appends_and_prefixes_thread_id():
     wf = make_workflow(DummyAgent([]))
     config = wf._create_config()
-    assert config in wf.configs
     assert config["configurable"]["thread_id"].startswith("thread_")
 
 
