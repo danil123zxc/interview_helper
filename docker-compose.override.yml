@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   app:
     # Mount source without clobbering the image's Linux venv

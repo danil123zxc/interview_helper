@@ -90,7 +90,7 @@ def main():
 
     with workflow_ctx() as workflow:
 
-        res = workflow.agent.invoke(user_input, config=workflow.config, context=context)
+        res = workflow.invoke(user_input, context=context, config=workflow.config)
         logger.debug(workflow.agent.get_state_history(workflow.config))
 
         logger.info("Workflow run finished")

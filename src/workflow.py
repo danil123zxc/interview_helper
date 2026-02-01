@@ -1,4 +1,6 @@
+import asyncio
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 from deepagents import create_deep_agent
@@ -119,6 +121,95 @@ class Workflow:
     def _create_config(self) -> Dict[str, Any]:
         return {"configurable": {"thread_id": f"thread_{uuid7()}"}}
 
+    def _run_coro(self, coro, *, label: str) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                asyncio.run(coro)
+            except Exception as exc:
+                logger.debug("%s failed: %s", label, exc)
+            return
+
+        task = loop.create_task(coro)
+
+        def _on_done(t: asyncio.Task):
+            try:
+                t.result()
+            except Exception as exc:
+                logger.debug("%s failed: %s", label, exc)
+
+        task.add_done_callback(_on_done)
+
+    def _maybe_ingest_web_context(
+        self,
+        user_input: str,
+        context: ContextSchema,
+        *,
+        config: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        enabled = os.getenv("RAG_INGEST_ENABLED", "true").strip().lower()
+        if enabled not in {"1", "true", "yes", "on"}:
+            return
+
+        if not self.tools:
+            return
+
+        tavily_search = self.tools.get("tavily_search")
+        tavily_extract = self.tools.get("tavily_extract")
+        if not tavily_search or not tavily_extract:
+            return
+
+        try:
+            from langchain_openai import OpenAIEmbeddings
+            from src.rag import extract_urls, ingest_relevant_websites
+        except Exception as exc:
+            logger.debug("RAG ingest setup failed: %s", exc)
+            return
+
+        seed_urls = extract_urls(user_input)
+        index_name = os.getenv("RAG_INDEX_NAME", "web")
+        node_label = os.getenv("RAG_NODE_LABEL", "WebPage")
+        max_urls = int(os.getenv("RAG_MAX_URLS", "10"))
+
+        extra_metadata: Dict[str, Any] = {}
+        thread_id = None
+        if config and isinstance(config, dict):
+            thread_id = config.get("configurable", {}).get("thread_id")
+        if thread_id:
+            extra_metadata["thread_id"] = thread_id
+        role = getattr(context, "role", None)
+        if role:
+            extra_metadata["role"] = role
+
+        coro = ingest_relevant_websites(
+            query=user_input,
+            tavily_search=tavily_search,
+            tavily_extract=tavily_extract,
+            embedding=OpenAIEmbeddings(),
+            index_name=index_name,
+            node_label=node_label,
+            seed_urls=seed_urls,
+            extra_metadata=extra_metadata,
+            max_urls=max_urls,
+        )
+        self._run_coro(coro, label="RAG ingest")
+
+    def invoke(
+        self,
+        user_input: str,
+        context: ContextSchema,
+        *,
+        config: Optional[Dict[str, Any]] = None,
+        messages: Optional[List[Dict[str, Any]]] = None,
+    ):
+        """Run the agent once (non-streaming), with optional RAG ingestion."""
+        config = self._create_config() if not config else config
+        self.config = config
+        self._maybe_ingest_web_context(user_input, context, config=config)
+        payload = {"messages": messages} if messages else {"messages": [{"role": "user", "content": user_input}]}
+        return self.agent.invoke(payload, config=config, context=context)
+
     def stream_all(
         self,
         user_input: str,
@@ -130,6 +221,7 @@ class Workflow:
         config = self._create_config() if not config else config
         self.config = config
         thread_id = config["configurable"].get("thread_id") if isinstance(config, dict) else None
+        self._maybe_ingest_web_context(user_input, context, config=config)
         logger.info(
             "Starting stream",
             extra={"thread_id": thread_id, "role": getattr(context, "role", None)},
