@@ -8,6 +8,7 @@ dependencies = [
     "deepagents>=0.2.7",
     "langchain>=1.0.8",
     "langchain-community>=0.4.1",
+    "langchain-neo4j>=0.8.0",
     "langchain-openai>=1.0.3",
     "langchain-tavily>=0.2.13",
     "langgraph>=1.0.3",

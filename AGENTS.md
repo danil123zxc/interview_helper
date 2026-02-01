@@ -35,3 +35,7 @@
 ## Configuration & Secrets
 - Local configuration lives in `.env`; never commit real API keys.
 - Required env vars: `OPENAI_API_KEY`, `TAVILY_API_KEY`, `REDDIT_*`, `DB_URL` (see `README.md`).
+
+
+## MCP Usage
+- Always use Context7 if you need any library docs(ex. langchain, langgraph, etc) 
