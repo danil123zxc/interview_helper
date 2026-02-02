@@ -170,7 +170,10 @@ class Workflow:
         seed_urls = extract_urls(user_input)
         index_name = os.getenv("RAG_INDEX_NAME", "web")
         node_label = os.getenv("RAG_NODE_LABEL", "WebPage")
-        max_urls = int(os.getenv("RAG_MAX_URLS", "10"))
+        try:
+            max_urls = int(os.getenv("RAG_MAX_URLS", "10"))
+        except ValueError:
+            max_urls = 10
 
         extra_metadata: Dict[str, Any] = {}
         thread_id = None
