@@ -29,6 +29,12 @@ conciseness_prompt ="""You are an expert data labeler evaluating model outputs f
   The goal is to reward responses that provide complete answers with absolutely no extraneous information.
 </Reminder>
 
+<Output>
+  Return JSON with fields:
+  - "conciseness": integer from 0 to 10
+  - "comment": detailed analysis that ends with "Thus, the score should be: X/10"
+</Output>
+
 <input>
 {inputs}
 </input>
@@ -37,3 +43,69 @@ conciseness_prompt ="""You are an expert data labeler evaluating model outputs f
 {outputs}
 </output>
 """
+
+hallucination_prompt = """You are an expert data labeler evaluating model outputs for hallucinations.
+
+<Instructions>
+  - List any claims made in the output.
+  - Identify which claims are supported or unsupported by the input context.
+  - Note any contradictions or speculative additions.
+</Instructions>
+
+<Output>
+  Return JSON with fields:
+  - "hallucination": boolean (TRUE if any hallucinations are present, otherwise FALSE)
+  - "comment": detailed analysis that ends with "Thus, the score should be: TRUE/FALSE"
+</Output>
+
+<input>
+{inputs}
+</input>
+
+<output>
+{outputs}
+</output>
+"""
+
+hallucination_eval_prompt = """You are an expert data labeler evaluating model outputs for hallucinations. Your task is to assign a score based on the following rubric:
+
+<Rubric>
+  A response without hallucinations:
+  - Contains only verifiable facts that are directly supported by the input context
+  - Makes no unsupported claims or assumptions
+  - Does not add speculative or imagined details
+  - Maintains perfect accuracy in dates, numbers, and specific details
+  - Appropriately indicates uncertainty when information is incomplete
+</Rubric>
+
+<Instructions>
+  - Read the input context thoroughly
+  - Identify all claims made in the output
+  - Cross-reference each claim with the input context
+  - Note any unsupported or contradictory information
+  - Consider the severity and quantity of hallucinations
+</Instructions>
+
+<Reminder>
+  Focus solely on factual accuracy and support from the input context. Do not consider style, grammar, or presentation in scoring. A shorter, factual response should score higher than a longer response with unsupported claims.
+</Reminder>
+
+Use the following context to help you evaluate for hallucinations in the output:
+
+<context>
+{context}
+</context>
+
+<input>
+{inputs}
+</input>
+
+<output>
+{outputs}
+</output>
+
+If available, you may also use the reference outputs below to help you identify hallucinations in the response:
+
+<reference_outputs>
+{reference_outputs}
+</reference_outputs>"""

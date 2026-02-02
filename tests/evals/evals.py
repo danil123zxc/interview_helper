@@ -40,12 +40,14 @@ import argparse
 import json
 import logging
 import os
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Type
 
 from langchain.chat_models import init_chat_model
 from langchain.chat_models.base import BaseChatModel
 from langsmith import Client, traceable
-from evals.prompts import conciseness_prompt, hallucination_prompt
+from pydantic import BaseModel
+from tests.evals.models import ConcisenessEval, HallucinationEval
+from tests.evals.prompts import conciseness_prompt, hallucination_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -79,73 +81,80 @@ def _extract_text(resp: Any) -> str:
     return str(content)
 
 
-def _call_judge(prompt: str, judge: Optional[BaseChatModel] = None) -> Dict[str, Any]:
-    """Call judge LLM and normalize JSON-ish score/comment output."""
+def _call_judge(
+    prompt: str,
+    response_model: Optional[Type[BaseModel]] = None,
+    judge: Optional[BaseChatModel] = None,
+) -> Dict[str, Any]:
+    """Call judge LLM and parse structured or JSON-ish output."""
     judge = judge or _get_judge()
+    if response_model is not None:
+        try:
+            structured = judge.with_structured_output(response_model)
+            parsed = structured.invoke(prompt)
+            if isinstance(parsed, BaseModel):
+                return parsed.model_dump()
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception as exc:
+            logger.debug("Structured output failed: %s", exc)
+
     raw = judge.invoke(prompt)
     text = _extract_text(raw).strip()
 
     try:
         parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return parsed
     except Exception:
         parsed = {}
-        lower = text.lower()
-        if "score" in lower:
-            for token in text.replace(",", " ").split():
-                try:
-                    val = float(token)
-                    if 0 <= val <= 1:
-                        parsed["score"] = val
-                        break
-                except Exception:
-                    continue
-        parsed.setdefault("comment", text or "No comment")
 
-    score = parsed.get("score")
-    try:
-        score = float(score) if score is not None else None
-    except Exception:
-        score = None
-    return {"score": score, "comment": parsed.get("comment", text)}
+    lower = text.lower()
+    if "score" in lower:
+        for token in text.replace(",", " ").split():
+            try:
+                val = float(token)
+                parsed.setdefault("score", val)
+                break
+            except Exception:
+                continue
+    parsed.setdefault("comment", text or "No comment")
+    return parsed
 
 
 def _conciseness_grader(inp: str, pred: str) -> Dict[str, Any]:
     """Prompt the judge to score conciseness."""
-    prompt = f"""
-You score subagent outputs for conciseness.
-Context (system + human prompts):
-{inp}
-
-Subagent output:
-{pred}
-
-Return JSON: {{"score": number between 0 and 1, "comment": "brief reason + trim suggestion"}}.
-Score 1 = fully concise and on-topic. Score 0 = verbose, repetitive, off-task.
-"""
-    result = _call_judge(prompt)
-    result["key"] = "conciseness"
-    return result
+    prompt = conciseness_prompt.format(inputs=inp, outputs=pred)
+    result = _call_judge(prompt, response_model=ConcisenessEval)
+    comment = result.get("comment", "")
+    score_raw = result.get("conciseness")
+    if score_raw is None:
+        score_raw = result.get("score")
+    score = None
+    if score_raw is not None:
+        try:
+            score = float(score_raw)
+        except Exception:
+            score = None
+    if score is not None and score > 1:
+        score = max(0.0, min(1.0, score / 10.0))
+    return {"key": "conciseness", "score": score, "comment": comment}
 
 
 def _hallucination_grader(inp: str, pred: str) -> Dict[str, Any]:
     """Prompt the judge to score hallucination rate."""
-    prompt = f"""
-You score subagent outputs for hallucination rate.
-Use ONLY the provided context. A hallucination is any factual claim in the output
-that is not supported by the context.
-
-Context (system + human prompts + optional extra context):
-{inp}
-
-Subagent output:
-{pred}
-
-Return JSON: {{"score": number between 0 and 1, "comment": "brief reason + note unsupported claims"}}.
-Score 0 = no unsupported claims (or no factual claims). Score 1 = mostly unsupported.
-"""
-    result = _call_judge(prompt)
-    result["key"] = "hallucination_rate"
-    return result
+    prompt = hallucination_prompt.format(inputs=inp, outputs=pred)
+    result = _call_judge(prompt, response_model=HallucinationEval)
+    comment = result.get("comment", "")
+    halluc = result.get("hallucination")
+    if isinstance(halluc, str):
+        halluc = halluc.strip().lower() in {"true", "yes", "1"}
+    if halluc is None:
+        score_raw = result.get("score")
+        score = float(score_raw) if score_raw is not None else None
+    else:
+        score = 1.0 if halluc else 0.0
+    return {"key": "hallucination_rate", "score": score, "comment": comment}
 
 
 # Step 3. Define evaluators
