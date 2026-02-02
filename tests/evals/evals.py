@@ -9,10 +9,9 @@ Workflow:
    and its markdown files as output.
 
 Dataset sources:
-- --dataset: LangSmith dataset name or UUID (requires LangSmith API key)
-- --history: local JSON list of examples
-- --inputs-dataset + --context-dataset: separate LangSmith datasets for user inputs and context
-- --inputs-history + --context-history: separate local JSON files for user inputs and context
+- --dataset: LangSmith dataset name/UUID or a local path (.json or .py).
+If not provided, uses tests/evals/dataset.py (EXAMPLES).
+Local datasets are uploaded to LangSmith automatically when API keys are available.
 
 Local JSON format (minimal):
 [
@@ -33,8 +32,10 @@ import asyncio
 import json
 import logging
 import os
+import re
+import importlib.util
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Type
+from typing import Any, Dict, List, Optional, Type
 
 from langchain.chat_models import init_chat_model
 from langchain.chat_models.base import BaseChatModel
@@ -77,7 +78,6 @@ SUBAGENT_FILES: Dict[str, List[str]] = {
 }
 
 USER_INPUT_KEYS = ("user_input", "input", "question", "prompt", "user_prompt")
-CONTEXT_KEYS = ("role", "resume", "experience_level", "years_of_experience")
 
 METRICS = (
     {
@@ -239,10 +239,89 @@ def _has_langsmith_key() -> bool:
     return bool(os.getenv("LANGSMITH_API_KEY") or os.getenv("LANGCHAIN_API_KEY"))
 
 
+def _sanitize_dataset_name(name: str) -> str:
+    """Normalize dataset name to safe characters."""
+    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "-", name).strip("-")
+    return cleaned or "evals-dataset"
+
+
+def _default_dataset_name(path: str, suffix: Optional[str] = None) -> str:
+    """Build a default dataset name from a file path."""
+    base = _sanitize_dataset_name(Path(path).stem)
+    name = f"evals-{base}"
+    if suffix:
+        name = f"{name}-{suffix}"
+    return name
+
+
+def _get_or_create_dataset(client: Client, dataset_name: str):
+    """Fetch a LangSmith dataset or create it if missing."""
+    try:
+        return client.read_dataset(dataset_name=dataset_name)
+    except Exception:
+        logger.info("Creating LangSmith dataset: %s", dataset_name)
+        return client.create_dataset(dataset_name=dataset_name)
+
+
+def _dataset_has_examples(client: Client, dataset_id: str) -> bool:
+    """Return True if the dataset already contains at least one example."""
+    try:
+        return next(client.list_examples(dataset_id=dataset_id, limit=1), None) is not None
+    except Exception:
+        return False
+
+
+def _upload_rows_to_langsmith(dataset_name: str, rows: List[Dict[str, Any]]) -> bool:
+    """Upload local rows to LangSmith as examples (inputs-only)."""
+    client = Client()
+    dataset = _get_or_create_dataset(client, dataset_name)
+    if _dataset_has_examples(client, dataset.id):
+        logger.info("LangSmith dataset %s already has examples; skipping upload.", dataset_name)
+        return False
+    examples = [{"inputs": row} for row in rows]
+    client.create_examples(dataset_id=dataset.id, examples=examples)
+    logger.info("Uploaded %d examples to LangSmith dataset: %s", len(rows), dataset_name)
+    return True
+
+
+def _should_upload() -> bool:
+    """Return True if we should upload local datasets to LangSmith."""
+    return _has_langsmith_key()
+
+
 def _load_history_rows(path: str) -> List[Dict[str, Any]]:
     """Load local JSON rows from a history file."""
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def _load_module_rows(path: str) -> List[Dict[str, Any]]:
+    """Load examples from a Python module (EXAMPLES)."""
+    module_path = Path(path)
+    if not module_path.exists():
+        raise SystemExit(f"Dataset module not found: {path}")
+
+    spec = importlib.util.spec_from_file_location("evals_dataset_module", module_path)
+    if spec is None or spec.loader is None:
+        raise SystemExit(f"Failed to import dataset module: {path}")
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    examples = getattr(module, "EXAMPLES", [])
+    if not isinstance(examples, list) or not examples:
+        raise SystemExit("EXAMPLES is missing or empty in dataset module.")
+
+    rows: List[Dict[str, Any]] = []
+    for ex in examples:
+        if not isinstance(ex, dict):
+            continue
+        inputs = ex.get("inputs") if "inputs" in ex else ex
+        if isinstance(inputs, dict):
+            rows.append(inputs)
+
+    if not rows:
+        raise SystemExit("No valid inputs found in dataset module EXAMPLES.")
+    return rows
 
 
 def _load_langsmith_rows(dataset_name: str) -> List[Dict[str, Any]]:
@@ -254,38 +333,6 @@ def _load_langsmith_rows(dataset_name: str) -> List[Dict[str, Any]]:
         row["_example_id"] = str(ex.id)
         rows.append(row)
     return rows
-
-
-def _merge_input_context_rows(
-    inputs_rows: List[Dict[str, Any]],
-    context_rows: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
-    """Merge input rows with context rows by index."""
-    if len(inputs_rows) != len(context_rows):
-        raise SystemExit(
-            "Inputs and context datasets must have the same length. "
-            f"Got {len(inputs_rows)} inputs vs {len(context_rows)} context rows."
-        )
-
-    merged: List[Dict[str, Any]] = []
-    for input_row, context_row in zip(inputs_rows, context_rows):
-        row = dict(input_row)
-
-        context_payload: Dict[str, Any] = {}
-        if isinstance(context_row.get("context"), dict):
-            context_payload.update(context_row["context"])
-        for key in CONTEXT_KEYS:
-            if key in context_row and context_row[key] is not None:
-                context_payload.setdefault(key, context_row[key])
-
-        if context_payload:
-            row["context"] = context_payload
-
-        for key, value in context_row.items():
-            row.setdefault(key, value)
-
-        merged.append(row)
-    return merged
 
 
 def _md_files_to_map(md_files: List[Dict[str, str]]) -> Dict[str, str]:
@@ -458,38 +505,61 @@ async def _run_evals_async(args: argparse.Namespace) -> List[Dict[str, Any]]:
         raise SystemExit("OPENAI_API_KEY is required to run evals.")
 
     defaults = {
-        "role": args.role,
-        "resume": args.resume,
-        "experience_level": args.experience_level,
-        "years_of_experience": args.years_of_experience,
+        "role": None,
+        "resume": None,
+        "experience_level": "intern",
+        "years_of_experience": None,
     }
 
-    if args.inputs_dataset or args.context_dataset:
-        if not (args.inputs_dataset and args.context_dataset):
-            raise SystemExit("--inputs-dataset and --context-dataset must be provided together.")
-        if not _has_langsmith_key():
-            raise SystemExit("LANGCHAIN_API_KEY or LANGSMITH_API_KEY required for LangSmith datasets.")
-        input_rows = _load_langsmith_rows(args.inputs_dataset)
-        context_rows = _load_langsmith_rows(args.context_dataset)
-        rows = _merge_input_context_rows(input_rows, context_rows)
-        dataset_label = f"{args.inputs_dataset} + {args.context_dataset}"
-    elif args.inputs_history or args.context_history:
-        if not (args.inputs_history and args.context_history):
-            raise SystemExit("--inputs-history and --context-history must be provided together.")
-        input_rows = _load_history_rows(args.inputs_history)
-        context_rows = _load_history_rows(args.context_history)
-        rows = _merge_input_context_rows(input_rows, context_rows)
-        dataset_label = f"{args.inputs_history} + {args.context_history}"
-    elif args.dataset:
-        if not _has_langsmith_key():
-            raise SystemExit("LANGCHAIN_API_KEY or LANGSMITH_API_KEY required for --dataset.")
-        rows = _load_langsmith_rows(args.dataset)
-        dataset_label = args.dataset
+    uploaded_names: List[str] = []
+
+    if args.dataset:
+        dataset_path = Path(args.dataset)
+        if dataset_path.exists():
+            suffix = dataset_path.suffix.lower()
+            if suffix == ".py":
+                rows = _load_module_rows(str(dataset_path))
+                dataset_label = str(dataset_path)
+                if _should_upload():
+                    dataset_name = _default_dataset_name(str(dataset_path), "module")
+                    try:
+                        if _upload_rows_to_langsmith(dataset_name, rows):
+                            uploaded_names.append(dataset_name)
+                    except Exception as exc:
+                        logger.warning("LangSmith upload failed: %s", exc)
+            elif suffix == ".json":
+                rows = _load_history_rows(str(dataset_path))
+                dataset_label = str(dataset_path)
+                if _should_upload():
+                    dataset_name = _default_dataset_name(str(dataset_path), "json")
+                    try:
+                        if _upload_rows_to_langsmith(dataset_name, rows):
+                            uploaded_names.append(dataset_name)
+                    except Exception as exc:
+                        logger.warning("LangSmith upload failed: %s", exc)
+            else:
+                raise SystemExit("Unsupported dataset path. Use a .json or .py file.")
+        else:
+            if not _has_langsmith_key():
+                raise SystemExit("LANGCHAIN_API_KEY or LANGSMITH_API_KEY required for LangSmith datasets.")
+            rows = _load_langsmith_rows(args.dataset)
+            dataset_label = args.dataset
     else:
-        if not args.history:
-            raise SystemExit("--history is required when not using --dataset.")
-        rows = _load_history_rows(args.history)
-        dataset_label = args.history
+        module_path = Path("tests/evals/dataset.py")
+        if not module_path.exists():
+            raise SystemExit("Default dataset module not found: tests/evals/dataset.py")
+        rows = _load_module_rows(str(module_path))
+        dataset_label = str(module_path)
+        if _should_upload():
+            dataset_name = _default_dataset_name(str(module_path), "module")
+            try:
+                if _upload_rows_to_langsmith(dataset_name, rows):
+                    uploaded_names.append(dataset_name)
+            except Exception as exc:
+                logger.warning("LangSmith upload failed: %s", exc)
+
+    if uploaded_names:
+        dataset_label = f"{dataset_label} (uploaded to {', '.join(uploaded_names)})"
 
     all_rows: List[Dict[str, Any]] = []
     for idx, row in enumerate(rows):
@@ -507,23 +577,11 @@ async def _run_evals_async(args: argparse.Namespace) -> List[Dict[str, Any]]:
 def main() -> None:
     """CLI entrypoint for running subagent evals."""
     parser = argparse.ArgumentParser(description="Run subagent evals over a dataset.")
-    parser.add_argument("--history", help="Path to local JSON dataset.")
-    parser.add_argument("--dataset", help="LangSmith dataset name or UUID.")
-    parser.add_argument("--inputs-history", help="Path to local JSON dataset with user inputs.")
-    parser.add_argument("--context-history", help="Path to local JSON dataset with context.")
-    parser.add_argument("--inputs-dataset", help="LangSmith dataset name/UUID with user inputs.")
-    parser.add_argument("--context-dataset", help="LangSmith dataset name/UUID with context.")
-    parser.add_argument("--role", help="Default role if not provided by examples.")
-    parser.add_argument("--resume", help="Default resume if not provided by examples.")
-    parser.add_argument("--experience-level", default="intern", help="Default experience level.")
-    parser.add_argument("--years-of-experience", type=int, help="Default years of experience.")
+    parser.add_argument(
+        "--dataset",
+        help="LangSmith dataset name/UUID or local path (.json or .py).",
+    )
     args = parser.parse_args()
-
-    if not args.dataset and not args.history:
-        default_history = Path("data/subagent_outputs.sample.json")
-        if default_history.exists():
-            args.history = str(default_history)
-            logger.info("Using default history dataset: %s", args.history)
 
     results = asyncio.run(_run_evals_async(args))
     print(f"Completed subagent evals: {len(results)} rows")

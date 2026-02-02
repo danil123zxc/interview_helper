@@ -15,7 +15,6 @@ EXAMPLES = [{'inputs': {'context': {'experience_level': 'mid',
                                    'UI testing and bug fixes.',
                          'role': 'back-end developer',
                          'years_of_experience': 3},
-             'example_id': 'ex-001',
              'user_input': 'Job posting: API/Backend Software Engineer at Particle Health. The role focuses '
                            'on designing, building, and maintaining RESTful APIs and backend services '
                            "primarily in Go, with some Python. You'll implement "
@@ -42,7 +41,6 @@ EXAMPLES = [{'inputs': {'context': {'experience_level': 'mid',
                                    'gains in processing speed and data quality.',
                          'role': 'data engineer',
                          'years_of_experience': 10},
-             'example_id': 'ex-002',
              'user_input': 'Job posting: Data Engineer at Arkana Laboratories. You will help build and '
                            'maintain the foundation of a next-generation data platform by designing and '
                            'optimizing data pipelines, data warehouse architecture, and data integration '
@@ -64,7 +62,6 @@ EXAMPLES = [{'inputs': {'context': {'experience_level': 'mid',
                                    'and automated resume parsing for faster screening.',
                          'role': 'machine learning engineer',
                          'years_of_experience': 5},
-             'example_id': 'ex-003',
              'user_input': 'Job posting: Machine Learning Engineer at AI Fund (RealAvatar). You will partner '
                            'with ML and product stakeholders to design a multimodal AI platform for audio, '
                            'video, and text; implement pipeline components; and build low-latency streaming '
@@ -90,7 +87,6 @@ EXAMPLES = [{'inputs': {'context': {'experience_level': 'mid',
                                    'application rewrites with CI improvements.',
                          'role': 'software engineer',
                          'years_of_experience': 2},
-             'example_id': 'ex-004',
              'user_input': 'Job posting: Machine Learning Engineer at Filevine. Responsibilities include '
                            'developing and improving NLP models (e.g., summarization, credibility analysis, '
                            'contradiction detection), improving transcription pipelines, automating internal '
@@ -112,7 +108,6 @@ EXAMPLES = [{'inputs': {'context': {'experience_level': 'mid',
                                    'improved usability through solid client-side architecture.',
                          'role': 'front-end developer',
                          'years_of_experience': 3},
-             'example_id': 'ex-005',
              'user_input': 'Job posting: Frontend Engineer at Logz.io. You will turn product ideas into rich '
                            'UI/UX features, write clean and maintainable front-end code, and build web '
                            'applications using React and Node.js. The role collaborates closely with product '
@@ -135,7 +130,6 @@ EXAMPLES = [{'inputs': {'context': {'experience_level': 'mid',
                                    'quality while mentoring a small dev team.',
                          'role': 'web developer',
                          'years_of_experience': 4},
-             'example_id': 'ex-006',
              'user_input': 'Job posting: Senior Frontend Software Engineer at Highspot. You will own the '
                            'full lifecycle of customer-facing features, drive frontend infrastructure '
                            'improvements, collaborate with product/design/backend, and build cross-browser '
@@ -159,7 +153,6 @@ EXAMPLES = [{'inputs': {'context': {'experience_level': 'mid',
                                    'automation and faster troubleshooting.',
                          'role': 'site reliability engineer',
                          'years_of_experience': 4},
-             'example_id': 'ex-007',
              'user_input': 'Job posting: Site Reliability Engineer at Breeze Airways. You will maintain '
                            'availability and reliability of critical platform services, manage production '
                            'systems and incidents, automate operations, build monitoring and '
@@ -181,7 +174,6 @@ EXAMPLES = [{'inputs': {'context': {'experience_level': 'mid',
                                    'quality through reviews and collaboration.',
                          'role': 'software engineer',
                          'years_of_experience': 8},
-             'example_id': 'ex-008',
              'user_input': 'Job posting: Staff Platform Engineer at Aktos. You will maintain AWS '
                            'infrastructure, build scalable backend features in Python/Django, implement API '
                            'and SFTP integrations, optimize Postgres performance, manage CI pipelines and '
@@ -205,7 +197,6 @@ EXAMPLES = [{'inputs': {'context': {'experience_level': 'mid',
                                    'Impact: strong revenue growth and improved sales-team effectiveness.',
                          'role': 'product manager',
                          'years_of_experience': 5},
-             'example_id': 'ex-009',
              'user_input': 'Job posting: Product Manager at Triple Whale. You will lead product development '
                            'from concept to launch, collaborate with engineering/design/marketing, define '
                            'requirements and detailed specs, analyze market and competition, prioritize '
@@ -229,7 +220,6 @@ EXAMPLES = [{'inputs': {'context': {'experience_level': 'mid',
                                    'end-to-end IoT software features.',
                          'role': 'software engineer',
                          'years_of_experience': 6},
-             'example_id': 'ex-010',
              'user_input': 'Job posting: Senior Technical Product Manager, Networking at Ditto. You will '
                            'drive the roadmap for networking and transport capabilities, balance '
                            'performance/reliability/complexity tradeoffs, coordinate across PM and '
