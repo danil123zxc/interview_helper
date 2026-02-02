@@ -4,7 +4,25 @@ from pydantic import BaseModel, Field
 
 
 class ConcisenessEval(BaseModel):
-    """Structured output for conciseness evaluation."""
+    """Structured output schema for conciseness evaluation.
+
+    Args:
+        comment: Detailed analysis ending with "Thus, the score should be: X/10".
+        conciseness: Integer score from 0 to 10.
+
+    Returns:
+        ConcisenessEval instance with validated fields.
+
+    Example:
+        ```python
+        eval_obj = ConcisenessEval(
+            comment="Concise overall. Thus, the score should be: 8/10",
+            conciseness=8,
+        )
+        eval_obj.model_dump()
+        # {"comment": "...", "conciseness": 8}
+        ```
+    """
 
     comment: str = Field(
         ...,
@@ -33,7 +51,25 @@ class ConcisenessEval(BaseModel):
 
 
 class HallucinationEval(BaseModel):
-    """Structured output for hallucination evaluation."""
+    """Structured output schema for hallucination evaluation.
+
+    Args:
+        comment: Analysis ending with "Thus, the score should be: TRUE/FALSE".
+        hallucination: True if hallucinations are present, otherwise False.
+
+    Returns:
+        HallucinationEval instance with validated fields.
+
+    Example:
+        ```python
+        eval_obj = HallucinationEval(
+            comment="All claims are supported. Thus, the score should be: FALSE",
+            hallucination=False,
+        )
+        eval_obj.model_dump()
+        # {"comment": "...", "hallucination": False}
+        ```
+    """
 
     comment: str = Field(
         ...,

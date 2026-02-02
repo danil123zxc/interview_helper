@@ -1,9 +1,0 @@
-[
-  {
-    "subagent_name": "analyze_agent",
-    "system_prompt": "You task is to analyze a resume and a job posting and write a report.",
-    "user_prompt": "Analyze this resume vs the attached job posting and give gaps + rewrites.",
-    "subagent_output": "Fit summary: strong Python, some ML; missing cloud. Gaps: production MLOps. Rewrites: add metrics on pipeline uptime and latency. Keywords: AWS, Kubernetes. Red flags: none.",
-  
-  }
-]

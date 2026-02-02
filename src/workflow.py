@@ -66,14 +66,13 @@ class Workflow:
                 "description": "Ingest job posting text or link into job_posting.md",
                 "system_prompt": job_posting_ingestor_prompt,
                 "tools": [self.tools.get("tavily_extract")],
-                "middleware": [context_middleware],
             },
             {
                 "name": "analyze_agent",
                 "description": "Analyze resume vs job posting; identify fit, gaps, rewrites with metrics placeholders.",
                 "system_prompt": analyze_agent_prompt,
                 "middleware": [context_middleware],
-            },
+            },  
             {
                 "name": "research_agent",
                 "description": "Research company/role/industry; return concise bullets with sources and implications.",
@@ -83,13 +82,11 @@ class Workflow:
                     self.tools.get("tavily_extract"),
                     self.tools.get("reddit_search"),
                 ],
-                "middleware": [context_middleware],
             },
             {
                 "name": "question_writer",
                 "description": "Generates a balanced set of 10 interview questions (behavioral + role-specific) with concise, structured example answers.",
                 "system_prompt": question_writer_prompt,
-                "middleware": [context_middleware],
                 "tools": [
                     
                     self.tools.get("tavily_search"),

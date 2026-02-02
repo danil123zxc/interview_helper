@@ -44,29 +44,6 @@ conciseness_prompt ="""You are an expert data labeler evaluating model outputs f
 </output>
 """
 
-hallucination_prompt = """You are an expert data labeler evaluating model outputs for hallucinations.
-
-<Instructions>
-  - List any claims made in the output.
-  - Identify which claims are supported or unsupported by the input context.
-  - Note any contradictions or speculative additions.
-</Instructions>
-
-<Output>
-  Return JSON with fields:
-  - "hallucination": boolean (TRUE if any hallucinations are present, otherwise FALSE)
-  - "comment": detailed analysis that ends with "Thus, the score should be: TRUE/FALSE"
-</Output>
-
-<input>
-{inputs}
-</input>
-
-<output>
-{outputs}
-</output>
-"""
-
 hallucination_eval_prompt = """You are an expert data labeler evaluating model outputs for hallucinations. Your task is to assign a score based on the following rubric:
 
 <Rubric>
@@ -89,12 +66,6 @@ hallucination_eval_prompt = """You are an expert data labeler evaluating model o
 <Reminder>
   Focus solely on factual accuracy and support from the input context. Do not consider style, grammar, or presentation in scoring. A shorter, factual response should score higher than a longer response with unsupported claims.
 </Reminder>
-
-Use the following context to help you evaluate for hallucinations in the output:
-
-<context>
-{context}
-</context>
 
 <input>
 {inputs}

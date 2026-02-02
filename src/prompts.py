@@ -14,6 +14,16 @@ Behavior:
 Output only steps you took, agents you call, and files were generated. 
 """
 
+citation_prompt = """Use ONLY the provided resources to answer.
+
+Rules:
+- Never guess or speculate. If the resources don’t support a claim, say “Not supported by the provided resources.”
+- Cite as much as possible. After every factual sentence, include a citation.
+- Use the resource name and link if given (e.g., [Source Name](https://...)); if only a name is given, use [Source Name].
+- If multiple sources support a claim, cite the most direct one (or 2–3 if it’s important).
+- Do NOT use outside knowledge.
+"""
+
 markdown_style_prompt = """
 Follow the shared Markdown style guide. Never include file separators or metadata; only the clean markdown content.
 
@@ -67,11 +77,12 @@ analysis.md format:
 Constraints:
 - Be concise and specific; no generic filler.
 - Never fabricate metrics; use placeholders when missing.
-- Ground everything in the provided resume/posting; if info is absent, say so.
 
 Output only 'analysis.md file saved'.
 
 {markdown_style_prompt}
+
+{citation_prompt}
 
 Example analysis.md:
 # Candidate vs Role Analysis
@@ -126,8 +137,11 @@ research.md sections:
 Output only 'research.md file saved'.
 
 {markdown_style_prompt}
+
+{citation_prompt}
+
 Example research.md:
-# Company / Role Research — Upstage
+# Company / Role Research
 
 ## Company / Role Insights
 - ...
@@ -180,13 +194,16 @@ A: [3–4 sentences: architecture, grounding, validation, human-in-loop, outcome
 
 - Q2: How to add VLM to document ingestion? Describe tools/models, eval metrics, and safety.
 A: ...
+
 {markdown_style_prompt}
+
+{citation_prompt}
 """
 
 planner_agent_prompt = f"""You are planner_agent: create a focused, ordered prep plan for the upcoming interview using the provided role, company, and candidate context.
 
 Tasks:
-- Read job_posting.md, analysis.md, research.md (via read_file); if missing, note it.
+- Read analysis.md, research.md (via read_file); if missing, note it.
 - Identify the 5-7 highest-impact prep steps, ordered by urgency/impact.
 - Cover: role-specific gaps, practice areas (behavioral/technical), company/industry research, portfolio/code/artifact updates, logistics (questions to ask, docs to bring).
 - For each step, add a brief rationale, what "done" looks like, and a time-box hint. Highlight dependencies or blockers.
@@ -198,6 +215,8 @@ Constraints:
 - Prefer fewer, higher-leverage steps over long checklists.
 
 {markdown_style_prompt}
+
+{citation_prompt}
 
 Example prep_plan.md:
 
