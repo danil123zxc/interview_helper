@@ -1,0 +1,92 @@
+[
+  {
+    "context": {
+      "role": "back-end developer",
+      "resume": "Michael Gebauer\nPosition: Back-end Developer\nYears of experience: 3\nTech stack: PHP, Python, Ruby, Java, Rust, C++, web apps, UI testing\nExperience:\n- Back-end Developer, LIMEX Technologies (London), 06/2017-06/2020. Built and maintained web applications, worked with clients to capture requirements, troubleshot issues, ran UI performance tests, and collaborated with designers and sys admins. Recognized for delivering projects on time and within budget; trained new team members.\nProjects:\n- Client web applications for multiple websites and internal systems; improved stability via troubleshooting and test coverage.\nImpact:\n- Consistently completed projects on schedule and within budget; improved performance through UI testing and bug fixes.",
+      "experience_level": "mid",
+      "years_of_experience": 3,
+      "resume_source": "https://www.kickresume.com/en/help-center/original-back-end-developer-resume-sample/"
+    }
+  },
+  {
+    "context": {
+      "role": "data engineer",
+      "resume": "Thomas Lee Holkain\nPosition: Data Engineer\nYears of experience: 10\nTech stack: SQL, Google BigQuery, Hadoop, data pipelines, data warehouses, SVN\nExperience:\n- Data Engineer, Google (CA), 12/2020-present. Built scalable data pipelines that reduced processing time by 65%; designed a data warehouse that enabled faster analytics and reporting.\n- Data Engineer, Microsoft (NY), 02/2015-09/2020. Streamlined data acquisition from multiple sources, improving data accuracy and completeness by 35%; resolved data quality issues with cross-functional teams.\n- Data Engineering Intern, Microsoft, 08/2014-03/2015. Conducted data analysis and visualization; maintained and optimized databases.\nProjects:\n- Enterprise data pipeline modernization and warehouse redesign for analytics stakeholders.\nImpact:\n- Processing time reduced by 65% and data accuracy improved by 35% in production pipelines.",
+      "experience_level": "senior",
+      "years_of_experience": 10,
+      "resume_source": "https://www.kickresume.com/en/help-center/data-engineer-resume-sample/"
+    }
+  },
+  {
+    "context": {
+      "role": "machine learning engineer",
+      "resume": "Victor Frank\nPosition: Machine Learning Engineer\nYears of experience: 5\nTech stack: Python, R, random forests, neural networks, Rasa, Keras, NLTK, Tesseract OCR\nExperience:\n- Machine Learning Engineer, BOT Shreyasi (present). Built a conversational bot with Rasa; owned design docs, development, testing, and deployment.\n- Machine Learning Intern, Henry Harvin Education (09/2019). Built ML models with Decision Trees and Keras; led the ML team through data prep to deployment.\nProjects:\n- Resume Parser: OCR + NLTK pipeline to extract keywords for HR shortlisting.\n- MyBlog: Python web app focused on page views and user experience.\nImpact:\n- Delivered end-to-end bot deployments and automated resume parsing for faster screening.",
+      "experience_level": "mid",
+      "years_of_experience": 5,
+      "resume_source": "https://resumekraft.com/machine-learning-engineer-resume-sample/"
+    }
+  },
+  {
+    "context": {
+      "role": "software engineer",
+      "resume": "Shay Software\nPosition: Software Engineer / Project Engineer\nYears of experience: 2\nTech stack: Java, Python, Ruby, C, C++, R, J2EE, Ruby on Rails, HTML, CSS, Oracle, MySQL, Postgres, Spring, Hibernate, REST, SOAP, JUnit, Jenkins, AWS\nExperience:\n- Software Engineer Intern, Informatica (05/2018-08/2018). Built subscription-based notifications for build error alerts; created a Jenkins plugin to purge build queues; built a utility to prevent environment issues on build servers.\n- Project Engineer, Wipro (06/2016-07/2017). Migrated and rewrote client applications for cloud computing; built GWT front-end screens and Java business logic; ran unit and performance tests (JUnit, JMeter); executed deployments across SIT, DIT, and UAT.\nProjects:\n- Library Management System (Oracle + Java GUI) with search, checkout, due-date notifications, and fines.\n- Recommendation system in R for tagging URLs.\n- Expertiza open-source web features in Ruby on Rails.\n- CI pipeline for a Java Maven project using Jenkins for auto-deploy.\nImpact:\n- Reduced build environment issues with automation and delivered multiple cloud app rewrites with CI improvements.",
+      "experience_level": "junior",
+      "years_of_experience": 2,
+      "resume_source": "https://careers.dasa.ncsu.edu/wp-content/uploads/sites/37/2018/08/Shay-Software-Resume-1.pdf"
+    }
+  },
+  {
+    "context": {
+      "role": "front-end developer",
+      "resume": "Hans Benny Bear\nPosition: Front-end Developer\nYears of experience: 3\nTech stack: JavaScript (Backbone, jQuery, Underscore), HTML, CSS\nExperience:\n- Front-end Developer, BudgetMatador (03/2015-present). Built the product website and UI components using JS libraries, HTML, and CSS; contributed to www.budgetmatador.com.\n- Customer-service consultant, Arvutitark OU (03/2014-04/2015).\nProjects:\n- Startup website front-end for BudgetMatador with responsive UI and interactive components.\nImpact:\n- Delivered production front-end for a startup product site.",
+      "experience_level": "mid",
+      "years_of_experience": 3,
+      "resume_source": "https://www.kickresume.com/help-center/front-end-developer-40-resume-sample/"
+    }
+  },
+  {
+    "context": {
+      "role": "web developer",
+      "resume": "Olivier Baudet\nPosition: Web Developer\nYears of experience: 4\nTech stack: PHP, MySQL, HTML, CSS, JavaScript, Java, C++, Adobe Dreamweaver\nExperience:\n- Web Developer, IDOX Software (Paris), 09/2017-01/2019. Led development of client websites, advised clients, and supervised a team of 7 freelancers; collaborated with PMs and creatives; presented market research to leadership.\n- Web Developer - PHP/MySQL, Stewart Travel (London), 07/2014-09/2017. Designed and implemented new websites end-to-end; maintained existing sites; trained team members; recognized as Employee of the Month for quality delivery.\nProjects:\n- Client website builds and redesigns across travel and software domains.\nImpact:\n- Led multi-site launches and improved delivery quality while mentoring a small dev team.",
+      "experience_level": "mid",
+      "years_of_experience": 4,
+      "resume_source": "https://www.kickresume.com/en/help-center/web-developer-resume-sample/"
+    }
+  },
+  {
+    "context": {
+      "role": "site reliability engineer",
+      "resume": "Parat Gason\nPosition: Site Reliability Engineer\nYears of experience: 4\nTech stack: microservices, pipeline frameworks, monitoring/testing, automation tools, W3C Validation Suite\nExperience:\n- Site Reliability Engineer, Worldpay (08/2017-03/2019). Built microservices and pipeline frameworks; provided system support and troubleshooting; developed automation tools; managed server overloads and live service monitoring.\n- Site Reliability Engineer, Starling Bank (06/2015-08/2017). Implemented monitoring and testing solutions; ran security assessments for web and mobile services; automated processes; managed incident resolution and error budgets.\nProjects:\n- Monitoring and automation initiatives for reliability and security coverage.\nImpact:\n- Improved reliability through automation and proactive monitoring; reduced incident impact via faster troubleshooting.",
+      "experience_level": "mid",
+      "years_of_experience": 4,
+      "resume_source": "https://www.kickresume.com/en/help-center/site-reliability-engineer-resume-sample/"
+    }
+  },
+  {
+    "context": {
+      "role": "software engineer",
+      "resume": "Kael Lightningstrike\nPosition: C# (.NET) Software Engineer\nYears of experience: 8\nTech stack: C#, .NET Framework, ASP.NET, Visual Studio, Git\nExperience:\n- C# (.NET) Software Engineer, Amazon (03/2021-present). Built scalable web apps in C#/.NET; improved application performance by about 20%; collaborated on requirements and design; resolved complex issues; conducted code reviews.\n- Entry-Level C# Developer, Amazon (07/2016-02/2021). Maintained C# applications, implemented solutions with OOP best practices, tested and debugged code, and translated user requirements into specs.\nProjects:\n- Web application modernization and performance optimization initiatives.\nImpact:\n- Performance improvements of about 20% and higher team productivity through collaboration and code quality practices.",
+      "experience_level": "senior",
+      "years_of_experience": 8,
+      "resume_source": "https://www.kickresume.com/en/help-center/c-net-software-engineer-resume-sample/"
+    }
+  },
+  {
+    "context": {
+      "role": "product manager",
+      "resume": "Marco Muller\nPosition: Product Manager\nYears of experience: 5\nTech stack: GoodData, Google Analytics, Aha!, Segment, Microsoft Office\nExperience:\n- Product Manager, FinancialForce (Luxembourg), 11/2016-01/2019. Led market research and competitive analysis; managed a 20-person sales team; partnered with marketing on campaigns; ensured policy compliance. Drove revenue increases of 20% (2017) and 30% (2018).\n- Assistant Product Manager, First Utility (Berlin), 06/2014-11/2016. Identified market and customer needs; collaborated on catalogs and digital content; updated the company website; supported weekly planning. Earned Employee of the Month twice.\n- Marketing Intern, General Electric (Vienna), 06/2013-08/2013. Built promotional campaigns and market research reports.\nProjects:\n- Product marketing campaigns and go-to-market materials; analytics dashboards for sales performance.\nImpact:\n- Revenue growth of 20% and 30% in consecutive years; improved sales team effectiveness through training.",
+      "experience_level": "mid",
+      "years_of_experience": 5,
+      "resume_source": "https://www.kickresume.com/en/help-center/product-manager-1-resume-sample/"
+    }
+  },
+  {
+    "context": {
+      "role": "software engineer",
+      "resume": "Wendy Williams\nPosition: Software Engineer\nYears of experience: 6\nTech stack: web development, firmware, server development, MapReduce, monitoring/alerting, data pipelines\nExperience:\n- Software Engineer, Lady Technologies (Shenzhen), 09/2018-present. Worked across web, firmware, test, and server development for an IoT device.\n- Web Developer, Kickresume (Bratislava), 11/2017-08/2018. Built web applications for resumes, cover letters, and personal websites.\n- Software Engineering Intern, Google (Zurich), 07/2017-09/2017. Rewrote a pipeline using MapReduce.\n- Software Engineering Intern, Google (Zurich), 07/2016-09/2016. Set up monitoring and alerting for a data pipeline.\n- Junior Software Developer, MicroStep-MIS (Bratislava), 06/2014-09/2015. Developed meteorological models and visualizations.\nProjects:\n- IoT device software stack and data pipeline monitoring tooling.\nImpact:\n- Improved pipeline reliability via monitoring and alerting; delivered end-to-end IoT software features.",
+      "experience_level": "mid",
+      "years_of_experience": 6,
+      "resume_source": "https://www.kickresume.com/en/help-center/software-engineer-3-resume-sample/"
+    }
+  }
+]
