@@ -21,7 +21,6 @@ Follow the shared Markdown style guide. Never include file separators or metadat
 - Prefer tight bullets; 1–2 lines each. Avoid rambling sentences.
 - Use tables for comparisons or checklists when possible (headers + aligned columns).
 - For callouts, use blockquotes with a bold label, e.g., `> **Risk:** ...`
-- For code/CLI, wrap in fenced blocks with an info string: ```bash ... ``` or ```python ... ```
 - For lists that imply steps, use numbered lists; for unordered facts, use `-`.
 - Keep whitespace: blank line after headings, between sections, and before/after tables.
 - Do NOT surround content with extra delimiters or banners. Do NOT emit file names or "-----" separators in the content.

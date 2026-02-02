@@ -5,8 +5,8 @@ Workflow:
 1) Run the agent on each dataset example.
 2) Wait until the run completes.
 3) Read the final state markdown files.
-4) Evaluate each subagent independently using its prompt from state history
-   as input and its markdown files as output.
+4) Evaluate each subagent independently using its execution history from
+   the final state as input and its markdown files as output.
 
 Dataset sources:
 - --dataset: LangSmith dataset name/UUID or a local path (.json or .py).
@@ -349,17 +349,16 @@ def _md_files_to_map(md_files: List[Dict[str, str]]) -> Dict[str, str]:
 
 def _build_subagent_items(
     md_map: Dict[str, str],
-    prompts_by_subagent: Dict[str, str],
+    history_by_subagent: Dict[str, str],
 ) -> List[Dict[str, str]]:
     """Build per-subagent input/output pairs for evaluation."""
     items: List[Dict[str, str]] = []
-    for subagent_name, fallback_prompt in SUBAGENT_PROMPTS.items():
+    for subagent_name in SUBAGENT_PROMPTS.keys():
         file_names = SUBAGENT_FILES.get(subagent_name, [])
-        prompt = (
-            prompts_by_subagent.get(subagent_name)
-            or prompts_by_subagent.get(subagent_name.replace("-", "_"))
-            or prompts_by_subagent.get("agent")
-            or fallback_prompt
+        input_text = (
+            history_by_subagent.get(subagent_name)
+            or history_by_subagent.get(subagent_name.replace("-", "_"))
+            or "No subagent history found."
         )
         outputs: List[str] = []
         for file_name in file_names:
@@ -372,85 +371,113 @@ def _build_subagent_items(
         items.append(
             {
                 "subagent_name": subagent_name,
-                "input": prompt,
+                "input": input_text,
                 "output": output_text,
             }
         )
     return items
 
 
-def _extract_prompts_from_history(history: Any) -> Dict[str, str]:
-    """Extract system/developer prompts from state history."""
-    prompts: Dict[str, str] = {}
+def _extract_state_obj(state: Any) -> Any:
+    """Normalize a final state snapshot into a plain object/dict when possible."""
+    if state is None:
+        return None
+    if isinstance(state, dict):
+        return state.get("values") or state.get("state") or state
+    return getattr(state, "values", None) or getattr(state, "state", None) or state
 
-    def _coerce_role(msg: Any) -> Optional[str]:
+
+def _collect_messages(obj: Any) -> List[Any]:
+    """Collect message lists under any `messages` key in an object tree."""
+    messages: List[Any] = []
+
+    def _walk(current: Any) -> None:
+        if isinstance(current, dict):
+            msgs = current.get("messages")
+            if isinstance(msgs, list):
+                messages.extend(msgs)
+            for value in current.values():
+                _walk(value)
+        elif isinstance(current, (list, tuple)):
+            for value in current:
+                _walk(value)
+
+    _walk(obj)
+    return messages
+
+
+def _extract_subagent_history(state_obj: Any, history: Any) -> Dict[str, str]:
+    """Extract per-subagent execution history from final state or state history."""
+    histories: Dict[str, List[str]] = {name: [] for name in SUBAGENT_PROMPTS.keys()}
+    tool_call_to_subagent: Dict[str, str] = {}
+
+    def _msg_get(msg: Any, key: str) -> Any:
         if isinstance(msg, dict):
-            return msg.get("role") or msg.get("type")
-        return getattr(msg, "role", None) or getattr(msg, "type", None)
+            return msg.get(key)
+        return getattr(msg, key, None)
 
-    def _coerce_name(msg: Any) -> Optional[str]:
-        if isinstance(msg, dict):
-            return msg.get("name") or msg.get("agent") or msg.get("subagent")
-        return getattr(msg, "name", None)
+    messages = _collect_messages(state_obj)
+    if not messages and history is not None:
+        messages = _collect_messages(history)
 
-    def _coerce_content(msg: Any) -> Optional[str]:
-        if isinstance(msg, dict):
-            return msg.get("content") or msg.get("text")
-        return getattr(msg, "content", None)
-
-    def _scan_messages(messages: List[Any], agent_name: Optional[str] = None) -> None:
-        for msg in messages:
-            role = _coerce_role(msg)
-            if not role:
+    for msg in messages:
+        tool_calls = _msg_get(msg, "tool_calls") or []
+        if isinstance(tool_calls, dict):
+            tool_calls = [tool_calls]
+        for call in tool_calls:
+            if not isinstance(call, dict):
                 continue
-            role_l = str(role).lower()
-            if role_l not in {"system", "developer"}:
-                continue
-            content = _coerce_content(msg)
-            if not content:
-                continue
-            name = _coerce_name(msg) or agent_name or "agent"
-            prompts[str(name)] = str(content)
+            call_name = call.get("name") or call.get("tool")
+            args = call.get("args") or {}
+            call_id = call.get("id")
+            if call_name == "task":
+                subagent = (
+                    args.get("subagent_type")
+                    or args.get("subagent")
+                    or args.get("name")
+                )
+                if subagent and subagent in histories:
+                    if call_id:
+                        tool_call_to_subagent[call_id] = subagent
+                    desc = args.get("description") or args.get("prompt") or str(args)
+                    histories[subagent].append(f"[task] {desc}")
+            elif call_name in histories:
+                if call_id:
+                    tool_call_to_subagent[call_id] = call_name
+                histories[call_name].append(f"[call] {args}")
 
-    def _walk(obj: Any, agent_name: Optional[str] = None) -> None:
-        if isinstance(obj, dict):
-            current_name = (
-                obj.get("name")
-                or obj.get("agent")
-                or obj.get("subagent")
-                or agent_name
-            )
-            messages = obj.get("messages")
-            if isinstance(messages, list):
-                _scan_messages(messages, agent_name=current_name)
-            for value in obj.values():
-                _walk(value, agent_name=current_name)
-        elif isinstance(obj, (list, tuple)):
-            for value in obj:
-                _walk(value, agent_name=agent_name)
+        role = _msg_get(msg, "role") or _msg_get(msg, "type")
+        role_l = str(role).lower() if role else ""
+        if role_l == "tool" or _msg_get(msg, "name") == "task":
+            tool_call_id = _msg_get(msg, "tool_call_id")
+            subagent = tool_call_to_subagent.get(tool_call_id)
+            if subagent and subagent in histories:
+                content = _msg_get(msg, "content")
+                if content:
+                    histories[subagent].append(f"[result] {content}")
 
-    _walk(history, agent_name=None)
-    return prompts
+    return {name: "\n".join(lines).strip() for name, lines in histories.items() if lines}
 
 
 async def _run_agent_for_row(
     row: Dict[str, Any],
     defaults: Dict[str, Any],
-) -> tuple[List[Dict[str, str]], Any]:
-    """Run the agent for a dataset row and return md files + state history."""
+) -> tuple[List[Dict[str, str]], Any, Any]:
+    """Run the agent for a dataset row and return md files + final state + history."""
     user_input = _extract_user_input(row)
     if not user_input:
         raise SystemExit("Missing user_input in dataset row.")
     context = _build_context(row, defaults)
     workflow = Workflow()
     await asyncio.to_thread(workflow.invoke, user_input, context=context, config=workflow.config)
+    final_state = workflow.get_final_state()
     md_files = workflow.list_md_files(workflow.config)
     history = None
     try:
         history = workflow.agent.get_state_history(workflow.config)
     except Exception as exc:
         logger.warning("Failed to load state history: %s", exc)
-    return md_files, history
+    return md_files, final_state, history
 
 
 async def _evaluate_subagent(item: Dict[str, str], example_id: str) -> Dict[str, Any]:
@@ -474,12 +501,13 @@ async def _evaluate_example(
     example_id: str,
 ) -> List[Dict[str, Any]]:
     """Run agent for one example and evaluate all subagents in parallel."""
-    md_files, history = await _run_agent_for_row(row, defaults)
+    md_files, final_state, history = await _run_agent_for_row(row, defaults)
     md_map = _md_files_to_map(md_files)
-    prompts_by_subagent = _extract_prompts_from_history(history) if history else {}
-    if not prompts_by_subagent:
-        logger.warning("No prompts found in state history; using fallback prompts.")
-    items = _build_subagent_items(md_map, prompts_by_subagent)
+    state_obj = _extract_state_obj(final_state)
+    history_by_subagent = _extract_subagent_history(state_obj, history)
+    if not history_by_subagent:
+        logger.warning("No subagent history found in final state; using empty inputs.")
+    items = _build_subagent_items(md_map, history_by_subagent)
     tasks = [
         _evaluate_subagent(item, example_id)
         for item in items
