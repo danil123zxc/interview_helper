@@ -149,8 +149,8 @@ def render_markdown_summary(
     for row in rows:
         conc_comment = normalize_comment(row.get("conciseness_comment"))
         hall_comment = normalize_comment(row.get("hallucination_comment"))
-        conc_comment = conc_comment.replace("|", "\|")
-        hall_comment = hall_comment.replace("|", "\|")
+        conc_comment = conc_comment.replace("|", "\\|")
+        hall_comment = hall_comment.replace("|", "\\|")
         lines.append(
             "| {example_id} | {subagent} | {conc} | {hall} | {conc_comment} | {hall_comment} |".format(
                 example_id=row.get("example_id", "-"),

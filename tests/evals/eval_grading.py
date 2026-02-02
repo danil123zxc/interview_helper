@@ -9,7 +9,7 @@ from langchain.chat_models.base import BaseChatModel
 from pydantic import BaseModel
 
 from tests.evals.models import ConcisenessEval, HallucinationEval
-from tests.evals.prompts import conciseness_prompt, hallucination_prompt
+from tests.evals.prompts import conciseness_prompt, hallucination_eval_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +168,7 @@ async def hallucination_grader_async(inp: str, pred: str) -> Dict[str, Any]:
         # result == {"key": "hallucination_rate", "score": 0.0, "comment": "..."}
         ```
     """
-    prompt = hallucination_prompt.format(inputs=inp, outputs=pred)
+    prompt = hallucination_eval_prompt.format(inputs=inp, outputs=pred)
     result = await call_judge_async(prompt, response_model=HallucinationEval)
     comment = result.get("comment", "")
     halluc = result.get("hallucination")

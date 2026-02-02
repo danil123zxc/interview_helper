@@ -6,7 +6,7 @@ import os
 import re
 from typing import Any
 
-from langchain.text_splitters import RecursiveCharacterTextSplitter, TextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter, TextSplitter
 from langchain_community.vectorstores import Neo4jVector
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
