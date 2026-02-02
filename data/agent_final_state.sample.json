@@ -1,18 +1,220 @@
 {
-  "values": {
-    "messages": [
-      {
-        "role": "user",
-        "content": "Help me to prepare for the interview https://careers.example.com/jobs/1234"
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LangGraphCheckpointTuple",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "config",
+    "checkpoint"
+  ],
+  "properties": {
+    "config": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "configurable"
+      ],
+      "properties": {
+        "configurable": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "thread_id",
+            "checkpoint_id",
+            "checkpoint_ns"
+          ],
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            },
+            "checkpoint_id": {
+              "type": "string"
+            },
+            "checkpoint_ns": {
+              "type": "string"
+            }
+          }
+        }
       }
-    ],
-    "files": {
-      "job_posting.md": "# Job Posting\n\n- Role: AI Engineer\n- Company: Example Corp\n- Requirements: Python, LangGraph, RAG, evaluation\n",
-      "analysis.md": "# Candidate vs Role Analysis\n\n## Fit Summary\n- Strong Python/LLM tooling experience; needs more production MLOps evidence.\n\n## Gaps & Mitigations\n- Missing cloud deployment ownership; add examples with metrics.\n",
-      "research.md": "# Company / Role Research — Example Corp\n\n## Company / Role Insights\n- Example Corp focuses on retrieval-augmented systems for customer support.\n",
-      "questions.md": "# Practice Questions (10)\n\n- Q1: Describe a time you reduced LLM hallucinations.\nA: ...\n",
-      "prep_plan.md": "# Prep Plan — AI Engineer\n\n## Steps (ordered)\n1) Update resume bullets with impact metrics.\n",
-      "final_response.md": "# Final Interview Prep Packet\n\n## From analysis.md\n...\n"
+    },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "v",
+        "id",
+        "ts",
+        "channel_values",
+        "channel_versions"
+      ],
+      "properties": {
+        "v": {
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "versions_seen": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "channel_values": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "files": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "required": [
+                  "content",
+                  "created_at",
+                  "modified_at"
+                ],
+                "properties": {
+                  "content": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "created_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "modified_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            },
+            "todos": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "content",
+                  "status"
+                ],
+                "properties": {
+                  "content": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": true
+              }
+            },
+            "messages": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "content"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string"
+                  },
+                  "role": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {},
+                  "id": {
+                    "type": "string"
+                  },
+                  "tool_calls": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "args"
+                      ],
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "args": {
+                          "type": "object",
+                          "additionalProperties": true
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": true
+                    }
+                  },
+                  "response_metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "usage_metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "additional_kwargs": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                },
+                "additionalProperties": true
+              }
+            },
+            "__pregel_tasks": {
+              "type": "array",
+              "items": {}
+            }
+          }
+        },
+        "channel_versions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "updated_channels": {
+          "type": "array",
+          "items": {}
+        }
+      }
+    },
+    "metadata": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": true
+    },
+    "parent_config": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": true
+    },
+    "pending_writes": {
+      "type": "array",
+      "items": {}
     }
   }
 }
