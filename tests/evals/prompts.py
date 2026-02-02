@@ -103,9 +103,4 @@ Use the following context to help you evaluate for hallucinations in the output:
 <output>
 {outputs}
 </output>
-
-If available, you may also use the reference outputs below to help you identify hallucinations in the response:
-
-<reference_outputs>
-{reference_outputs}
-</reference_outputs>"""
+"""

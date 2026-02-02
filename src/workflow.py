@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import time
 from typing import Any, Dict, List, Optional
 
 from deepagents import create_deep_agent
@@ -22,6 +23,7 @@ from src.prompts import (deep_agent_prompt,
                          job_posting_ingestor_prompt)
 
 from src.schemas import ContextSchema
+from src.logging_config import logging_context
 from src.tools.context_middleware import context_middleware
 from src.tools.tools import build_tools
 from langchain.agents.middleware import PIIMiddleware
@@ -219,9 +221,15 @@ class Workflow:
         """Run the agent once (non-streaming), with optional RAG ingestion."""
         config = self._create_config() if not config else config
         self.config = config
-        self._maybe_ingest_web_context(user_input, context, config=config)
-        payload = {"messages": messages} if messages else {"messages": [{"role": "user", "content": user_input}]}
-        return self.agent.invoke(payload, config=config, context=context)
+        thread_id = config.get("configurable", {}).get("thread_id") if isinstance(config, dict) else None
+        start = time.monotonic()
+        with logging_context(thread_id=thread_id):
+            self._maybe_ingest_web_context(user_input, context, config=config)
+            payload = {"messages": messages} if messages else {"messages": [{"role": "user", "content": user_input}]}
+            result = self.agent.invoke(payload, config=config, context=context)
+        elapsed = time.monotonic() - start
+        logger.info("Invoke completed in %.2fs", elapsed)
+        return result
 
     def stream_all(
         self,
@@ -234,40 +242,46 @@ class Workflow:
         config = self._create_config() if not config else config
         self.config = config
         thread_id = config["configurable"].get("thread_id") if isinstance(config, dict) else None
-        self._maybe_ingest_web_context(user_input, context, config=config)
-        logger.info(
-            "Starting stream",
-            extra={"thread_id": thread_id, "role": getattr(context, "role", None)},
-        )
-
-        collected_text: List[str] = []
-        payload = {"messages": messages} if messages else {"messages": [{"role": "user", "content": user_input}]}
-
-        for message_chunk, metadata in self.agent.stream(payload, stream_mode="messages", config=config, context=context):
-            content = message_chunk.content
-            if isinstance(content, list):
-                content = " ".join(str(c) for c in content if c)
-            if content:
-                collected_text.append(content)
-            yield message_chunk
-
-        final_snippet = (" ".join(collected_text) if collected_text else "")[:500].replace("\n", " ")
-        md_files = self._iter_md_files_from_state(config) or self._iter_md_files_from_checkpoint(config)
-        if md_files:
-            file_names = [md.get("name") for md in md_files if isinstance(md, dict)]
+        start = time.monotonic()
+        with logging_context(thread_id=thread_id):
+            self._maybe_ingest_web_context(user_input, context, config=config)
             logger.info(
-                "Final markdown files available",
-                extra={
-                    "thread_id": thread_id,
-                    "role": getattr(context, "role", None),
-                    "files": file_names,
-                },
+                "Starting stream",
+                extra={"thread_id": thread_id, "role": getattr(context, "role", None)},
             )
 
-        logger.info(
-            "Stream completed",
-            extra={"thread_id": thread_id, "role": getattr(context, "role", None), "snippet": final_snippet},
-        )
+            collected_text: List[str] = []
+            payload = {"messages": messages} if messages else {"messages": [{"role": "user", "content": user_input}]}
+
+            for message_chunk, metadata in self.agent.stream(
+                payload, stream_mode="messages", config=config, context=context
+            ):
+                content = message_chunk.content
+                if isinstance(content, list):
+                    content = " ".join(str(c) for c in content if c)
+                if content:
+                    collected_text.append(content)
+                yield message_chunk
+
+            final_snippet = (" ".join(collected_text) if collected_text else "")[:500].replace("\n", " ")
+            md_files = self._iter_md_files_from_state(config) or self._iter_md_files_from_checkpoint(config)
+            if md_files:
+                file_names = [md.get("name") for md in md_files if isinstance(md, dict)]
+                logger.info(
+                    "Final markdown files available",
+                    extra={
+                        "thread_id": thread_id,
+                        "role": getattr(context, "role", None),
+                        "files": file_names,
+                    },
+                )
+
+            elapsed = time.monotonic() - start
+            logger.info(
+                "Stream completed in %.2fs",
+                elapsed,
+                extra={"thread_id": thread_id, "role": getattr(context, "role", None), "snippet": final_snippet},
+            )
 
     def stream_content(self, user_input: str, context: ContextSchema):
         """Yield content (any role) as strings."""

@@ -42,6 +42,7 @@ from langchain.chat_models.base import BaseChatModel
 from langsmith import Client
 from pydantic import BaseModel
 
+from src.logging_config import setup_logging
 from src.schemas import ContextSchema
 from src.workflow import Workflow
 from src.prompts import (
@@ -588,5 +589,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    setup_logging()
     main()

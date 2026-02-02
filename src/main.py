@@ -1,5 +1,7 @@
+import json
 import logging
 import os
+import time
 from dotenv import load_dotenv
 from langchain_tavily import TavilyExtract
 from langchain_tavily import TavilySearch
@@ -88,11 +90,23 @@ def main():
     )
     logger.info("Starting workflow run with Postgres checkpointing")
 
+    def _truncate_for_log(value, limit: int = 1200) -> str:
+        if value is None:
+            return ""
+        try:
+            text = json.dumps(value, default=str)
+        except Exception:
+            text = str(value)
+        text = " ".join(text.split())
+        if len(text) <= limit:
+            return text
+        return text[: max(0, limit - 3)] + "..."
+
     def _log_final_state(wf: Workflow) -> None:
         try:
             state = wf.get_final_state()
         except Exception as exc:
-            logger.warning("Failed to load final state: %s", exc)
+            logger.warning("Failed to load final state: %s", exc, exc_info=True)
             return
 
         if isinstance(state, dict):
@@ -105,25 +119,31 @@ def main():
         try:
             md_files = wf.list_md_files(wf.config)
         except Exception as exc:
-            logger.warning("Failed to load markdown files from state: %s", exc)
+            logger.warning("Failed to load markdown files from state: %s", exc, exc_info=True)
 
         file_names = [f.get("name") for f in md_files if isinstance(f, dict)]
         logger.info("Final state keys: %s", state_keys)
         logger.info("Final markdown files: %s", file_names)
-        logger.debug("Final state: %s", state_obj)
+        logger.debug("Final state summary: %s", _truncate_for_log(state_obj))
 
     try:
         with workflow_ctx() as workflow:
+            start = time.monotonic()
             res = workflow.invoke(user_input, context=context, config=workflow.config)
-            logger.debug(workflow.get_final_state())
-            logger.info("Workflow run finished")
+            elapsed = time.monotonic() - start
+            logger.info("Workflow run finished in %.2fs", elapsed)
             _log_final_state(workflow)
     except Exception as exc:
-        logger.warning("Postgres workflow failed, falling back to in-memory workflow: %s", exc)
+        logger.warning(
+            "Postgres workflow failed, falling back to in-memory workflow: %s",
+            exc,
+            exc_info=True,
+        )
         workflow = Workflow()
+        start = time.monotonic()
         res = workflow.invoke(user_input, context=context, config=workflow.config)
-        logger.debug(workflow.agent.get_state_history(workflow.config))
-        logger.info("Workflow run finished (in-memory)")
+        elapsed = time.monotonic() - start
+        logger.info("Workflow run finished (in-memory) in %.2fs", elapsed)
         _log_final_state(workflow)
 
 if __name__ == "__main__": 
