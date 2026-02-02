@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from src.logging_config import setup_logging
-from tests.evals.eval_dataset import (
+from tests.evals.dataset.eval_dataset import (
     default_dataset_name,
     has_langsmith_key,
     has_openai_key,

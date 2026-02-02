@@ -161,7 +161,7 @@ class Workflow:
 
         try:
             from langchain_openai import OpenAIEmbeddings
-            from src.rag import extract_urls, ingest_relevant_websites
+            from src.tools.rag import extract_urls, ingest_relevant_websites
         except Exception as exc:
             logger.debug("RAG ingest setup failed: %s", exc)
             return
