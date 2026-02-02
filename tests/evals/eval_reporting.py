@@ -125,7 +125,7 @@ def render_markdown_summary(
                 "hallucination_comment": "none",
             }
         ]
-        md = render_markdown_summary(summary, rows, "dataset.py")
+        md = render_markdown_summary(summary, rows, "dataset/dataset.py")
         # md.splitlines()[0] == "## Subagent evals"
         ```
     """

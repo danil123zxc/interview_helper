@@ -82,7 +82,7 @@ def default_dataset_name(path: str, suffix: Optional[str] = None) -> str:
 
     Example:
         ```python
-        default_dataset_name("tests/evals/dataset.py", "module")
+        default_dataset_name("tests/evals/dataset/dataset.py", "module")
         # "evals-dataset-module"
         ```
     """
@@ -218,7 +218,7 @@ def load_module_rows(path: str) -> List[Dict[str, Any]]:
     Example:
         ```python
         # dataset.py contains: EXAMPLES = [{"inputs": {"user_input": "Hi"}}]
-        rows = load_module_rows("tests/evals/dataset.py")
+        rows = load_module_rows("tests/evals/dataset/dataset.py")
         # rows == [{"user_input": "Hi"}]
         ```
     """

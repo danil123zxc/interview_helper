@@ -9,7 +9,7 @@ Workflow:
 
 Dataset sources:
 - --dataset: LangSmith dataset name/UUID or a local path (.json or .py).
-If not provided, uses tests/evals/dataset.py (EXAMPLES).
+If not provided, uses tests/evals/dataset/dataset.py (EXAMPLES).
 Local datasets are uploaded to LangSmith automatically when API keys are available.
 
 Local JSON format (minimal):
@@ -64,7 +64,7 @@ async def _run_evals_async(args: argparse.Namespace) -> List[Dict[str, Any]]:
 
     Example:
         ```python
-        args = argparse.Namespace(dataset="tests/evals/dataset.py")
+        args = argparse.Namespace(dataset="tests/evals/dataset/dataset.py")
         results = asyncio.run(_run_evals_async(args))
         # len(results) >= 1 when dataset has examples
         ```
@@ -113,9 +113,9 @@ async def _run_evals_async(args: argparse.Namespace) -> List[Dict[str, Any]]:
             rows = load_langsmith_rows(args.dataset)
             dataset_label = args.dataset
     else:
-        module_path = Path("tests/evals/dataset.py")
+        module_path = Path("tests/evals/dataset/dataset.py")
         if not module_path.exists():
-            raise SystemExit("Default dataset module not found: tests/evals/dataset.py")
+            raise SystemExit("Default dataset module not found: tests/evals/dataset/dataset.py")
         rows = load_module_rows(str(module_path))
         dataset_label = str(module_path)
         if should_upload():
@@ -154,7 +154,7 @@ def main() -> None:
     Example:
         ```python
         # CLI usage:
-        # python tests/evals/evals.py --dataset tests/evals/dataset.py
+        # python tests/evals/evals.py --dataset tests/evals/dataset/dataset.py
         #
         # Output includes:
         # "Completed subagent evals: <N> rows"
