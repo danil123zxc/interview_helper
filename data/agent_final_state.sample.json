@@ -1,0 +1,18 @@
+{
+  "values": {
+    "messages": [
+      {
+        "role": "user",
+        "content": "Help me to prepare for the interview https://careers.example.com/jobs/1234"
+      }
+    ],
+    "files": {
+      "job_posting.md": "# Job Posting\n\n- Role: AI Engineer\n- Company: Example Corp\n- Requirements: Python, LangGraph, RAG, evaluation\n",
+      "analysis.md": "# Candidate vs Role Analysis\n\n## Fit Summary\n- Strong Python/LLM tooling experience; needs more production MLOps evidence.\n\n## Gaps & Mitigations\n- Missing cloud deployment ownership; add examples with metrics.\n",
+      "research.md": "# Company / Role Research — Example Corp\n\n## Company / Role Insights\n- Example Corp focuses on retrieval-augmented systems for customer support.\n",
+      "questions.md": "# Practice Questions (10)\n\n- Q1: Describe a time you reduced LLM hallucinations.\nA: ...\n",
+      "prep_plan.md": "# Prep Plan — AI Engineer\n\n## Steps (ordered)\n1) Update resume bullets with impact metrics.\n",
+      "final_response.md": "# Final Interview Prep Packet\n\n## From analysis.md\n...\n"
+    }
+  }
+}

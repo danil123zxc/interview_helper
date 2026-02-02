@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 def main():
 
-    user_input = "Help me to prepare for the interview https://careers.upstage.ai/o/ai-agent-engineer"
+    user_input = "Help me to prepare for the interview https://careers.kakao.com/jobs/P-14347?skillSet=&part=TECHNOLOGY&company=KAKAO&keyword=&employeeType=&page=1"
 
     context = ContextSchema(
         role="AI engineer",
@@ -88,12 +88,43 @@ def main():
     )
     logger.info("Starting workflow run with Postgres checkpointing")
 
-    with workflow_ctx() as workflow:
+    def _log_final_state(wf: Workflow) -> None:
+        try:
+            state = wf.agent.get_state(wf.config)
+        except Exception as exc:
+            logger.warning("Failed to load final state: %s", exc)
+            return
 
+        if isinstance(state, dict):
+            state_obj = state.get("values") or state.get("state") or state
+        else:
+            state_obj = getattr(state, "values", None) or getattr(state, "state", None) or state
+
+        state_keys = list(state_obj.keys()) if isinstance(state_obj, dict) else []
+        md_files = []
+        try:
+            md_files = wf.list_md_files(wf.config)
+        except Exception as exc:
+            logger.warning("Failed to load markdown files from state: %s", exc)
+
+        file_names = [f.get("name") for f in md_files if isinstance(f, dict)]
+        logger.info("Final state keys: %s", state_keys)
+        logger.info("Final markdown files: %s", file_names)
+        logger.debug("Final state: %s", state_obj)
+
+    try:
+        with workflow_ctx() as workflow:
+            res = workflow.invoke(user_input, context=context, config=workflow.config)
+            logger.debug(workflow.agent.get_state_history(workflow.config))
+            logger.info("Workflow run finished")
+            _log_final_state(workflow)
+    except Exception as exc:
+        logger.warning("Postgres workflow failed, falling back to in-memory workflow: %s", exc)
+        workflow = Workflow()
         res = workflow.invoke(user_input, context=context, config=workflow.config)
         logger.debug(workflow.agent.get_state_history(workflow.config))
-
-        logger.info("Workflow run finished")
+        logger.info("Workflow run finished (in-memory)")
+        _log_final_state(workflow)
 
 if __name__ == "__main__": 
     main()
