@@ -90,7 +90,7 @@ def main():
 
     def _log_final_state(wf: Workflow) -> None:
         try:
-            state = wf.agent.get_state(wf.config)
+            state = wf.get_final_state()
         except Exception as exc:
             logger.warning("Failed to load final state: %s", exc)
             return
@@ -115,7 +115,7 @@ def main():
     try:
         with workflow_ctx() as workflow:
             res = workflow.invoke(user_input, context=context, config=workflow.config)
-            logger.debug(workflow.agent.get_state_history(workflow.config))
+            logger.debug(workflow.get_final_state())
             logger.info("Workflow run finished")
             _log_final_state(workflow)
     except Exception as exc:

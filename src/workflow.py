@@ -198,6 +198,16 @@ class Workflow:
         )
         self._run_coro(coro, label="RAG ingest")
 
+    def get_final_state(self) -> Any:
+
+        """Return the final agent state after a run."""
+        try:
+            state = self.agent.get_state(self.config)
+        except Exception as exc:
+            logger.warning("Failed to load final state: %s", exc)
+            return None
+        return state
+    
     def invoke(
         self,
         user_input: str,

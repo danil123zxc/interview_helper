@@ -1,51 +1,56 @@
-﻿"""
+"""
 Evaluation runner for subagent outputs.
 
-This script follows the LangSmith evaluate-LLM-application structure:
-1) Define an application (target function).
-2) Select a dataset (LangSmith dataset or local JSON history).
-3) Define evaluators.
-4) Run evaluation.
+Workflow:
+1) Run the agent on each dataset example.
+2) Wait until the run completes.
+3) Read the final state markdown files.
+4) Evaluate each subagent independently using its system prompt as input
+   and its markdown files as output.
 
-Local JSON formats supported (passed via --history):
+Dataset sources:
+- --dataset: LangSmith dataset name or UUID (requires LangSmith API key)
+- --history: local JSON list of examples
+- --inputs-dataset + --context-dataset: separate LangSmith datasets for user inputs and context
+- --inputs-history + --context-history: separate local JSON files for user inputs and context
 
-Format A (subagent markdown history):
+Local JSON format (minimal):
 [
   {
-    "subagent_name": "analyze_agent",
-    "system_prompt": "... full system prompt passed to the subagent ...",
-    "user_messages": ["human prompt 1", "human prompt 2"],
-    "md_files": [
-      {"name": "analysis.md", "text": "...markdown content..."}
-    ]
+    "user_input": "Help me prepare for ...",
+    "context": {
+      "role": "AI engineer",
+      "resume": "...",
+      "experience_level": "intern",
+      "years_of_experience": 0
+    }
   }
 ]
-
-Format B (flat dataset):
-[
-  {
-    "subagent_name": "analyze_agent",
-    "system_prompt": "You task is to analyze a resume and a job posting.",
-    "user_prompt": "Analyze this resume vs the attached job posting and give gaps.",
-    "subagent_output": "Fit summary: ..."
-  }
-]
-
-The evals grade:
-- conciseness (0-1, higher is better)
-- hallucination rate (0-1, lower is better)
 """
 
 import argparse
+import asyncio
 import json
 import logging
 import os
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Type
 
 from langchain.chat_models import init_chat_model
 from langchain.chat_models.base import BaseChatModel
-from langsmith import Client, traceable
+from langsmith import Client
 from pydantic import BaseModel
+
+from src.schemas import ContextSchema
+from src.workflow import Workflow
+from src.prompts import (
+    analyze_agent_prompt,
+    job_posting_ingestor_prompt,
+    planner_agent_prompt,
+    question_writer_prompt,
+    research_agent_prompt,
+    synthesis_agent_prompt,
+)
 from tests.evals.models import ConcisenessEval, HallucinationEval
 from tests.evals.prompts import conciseness_prompt, hallucination_prompt
 
@@ -53,12 +58,43 @@ logger = logging.getLogger(__name__)
 
 _JUDGE: Optional[BaseChatModel] = None
 
+SUBAGENT_PROMPTS: Dict[str, str] = {
+    "job_posting_ingestor": job_posting_ingestor_prompt,
+    "analyze_agent": analyze_agent_prompt,
+    "research_agent": research_agent_prompt,
+    "question_writer": question_writer_prompt,
+    "planner_agent": planner_agent_prompt,
+    "synthesis_agent": synthesis_agent_prompt,
+}
 
-# Step 1. Define your application (target function)
-@traceable
-def subagent_output_app(inputs: Dict[str, Any]) -> Dict[str, Any]:
-    """Return the stored subagent output so we can judge it."""
-    return {"output": inputs.get("output", "")}
+SUBAGENT_FILES: Dict[str, List[str]] = {
+    "job_posting_ingestor": ["job_posting.md"],
+    "analyze_agent": ["analysis.md"],
+    "research_agent": ["research.md"],
+    "question_writer": ["questions.md"],
+    "planner_agent": ["prep_plan.md"],
+    "synthesis_agent": ["final_response.md"],
+}
+
+USER_INPUT_KEYS = ("user_input", "input", "question", "prompt", "user_prompt")
+CONTEXT_KEYS = ("role", "resume", "experience_level", "years_of_experience")
+
+METRICS = (
+    {
+        "key": "conciseness",
+        "label": "Conciseness",
+        "score_field": "conciseness_score",
+        "comment_field": "conciseness_comment",
+        "direction": "higher_better",
+    },
+    {
+        "key": "hallucination_rate",
+        "label": "Hallucination rate",
+        "score_field": "hallucination_score",
+        "comment_field": "hallucination_comment",
+        "direction": "lower_better",
+    },
+)
 
 
 def _get_judge() -> BaseChatModel:
@@ -81,7 +117,7 @@ def _extract_text(resp: Any) -> str:
     return str(content)
 
 
-def _call_judge(
+async def _call_judge_async(
     prompt: str,
     response_model: Optional[Type[BaseModel]] = None,
     judge: Optional[BaseChatModel] = None,
@@ -91,7 +127,7 @@ def _call_judge(
     if response_model is not None:
         try:
             structured = judge.with_structured_output(response_model)
-            parsed = structured.invoke(prompt)
+            parsed = await structured.ainvoke(prompt)
             if isinstance(parsed, BaseModel):
                 return parsed.model_dump()
             if isinstance(parsed, dict):
@@ -99,7 +135,7 @@ def _call_judge(
         except Exception as exc:
             logger.debug("Structured output failed: %s", exc)
 
-    raw = judge.invoke(prompt)
+    raw = await judge.ainvoke(prompt)
     text = _extract_text(raw).strip()
 
     try:
@@ -122,29 +158,26 @@ def _call_judge(
     return parsed
 
 
-def _conciseness_grader(inp: str, pred: str) -> Dict[str, Any]:
+async def _conciseness_grader_async(inp: str, pred: str) -> Dict[str, Any]:
     """Prompt the judge to score conciseness."""
     prompt = conciseness_prompt.format(inputs=inp, outputs=pred)
-    result = _call_judge(prompt, response_model=ConcisenessEval)
+    result = await _call_judge_async(prompt, response_model=ConcisenessEval)
     comment = result.get("comment", "")
     score_raw = result.get("conciseness")
     if score_raw is None:
         score_raw = result.get("score")
-    score = None
-    if score_raw is not None:
-        try:
-            score = float(score_raw)
-        except Exception:
-            score = None
-    if score is not None and score > 1:
-        score = max(0.0, min(1.0, score / 10.0))
+    score: Optional[float]
+    try:
+        score = float(score_raw) if score_raw is not None else None
+    except Exception:
+        score = None
     return {"key": "conciseness", "score": score, "comment": comment}
 
 
-def _hallucination_grader(inp: str, pred: str) -> Dict[str, Any]:
+async def _hallucination_grader_async(inp: str, pred: str) -> Dict[str, Any]:
     """Prompt the judge to score hallucination rate."""
     prompt = hallucination_prompt.format(inputs=inp, outputs=pred)
-    result = _call_judge(prompt, response_model=HallucinationEval)
+    result = await _call_judge_async(prompt, response_model=HallucinationEval)
     comment = result.get("comment", "")
     halluc = result.get("hallucination")
     if isinstance(halluc, str):
@@ -157,94 +190,43 @@ def _hallucination_grader(inp: str, pred: str) -> Dict[str, Any]:
     return {"key": "hallucination_rate", "score": score, "comment": comment}
 
 
-# Step 3. Define evaluators
-
-def conciseness_eval(
-    inputs: Dict[str, Any],
-    outputs: Dict[str, Any],
-    reference_outputs: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    """LLM-judge conciseness of the output given the context."""
-    _ = reference_outputs
-    return _conciseness_grader(str(inputs.get("input", "")), str(outputs.get("output", "")))
+def _extract_user_input(row: Dict[str, Any]) -> Optional[str]:
+    """Extract the user input string from a dataset row."""
+    for key in USER_INPUT_KEYS:
+        val = row.get(key)
+        if val:
+            return str(val)
+    return None
 
 
-def hallucination_rate_eval(
-    inputs: Dict[str, Any],
-    outputs: Dict[str, Any],
-    reference_outputs: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    """LLM-judge hallucination rate against provided context."""
-    _ = reference_outputs
-    return _hallucination_grader(str(inputs.get("input", "")), str(outputs.get("output", "")))
-
-
-METRICS = (
-    {
-        "key": "conciseness",
-        "label": "Conciseness",
-        "score_field": "conciseness_score",
-        "comment_field": "conciseness_comment",
-        "direction": "higher_better",
-    },
-    {
-        "key": "hallucination_rate",
-        "label": "Hallucination rate",
-        "score_field": "hallucination_score",
-        "comment_field": "hallucination_comment",
-        "direction": "lower_better",
-    },
-)
-
-
-def _coerce_list(val: Any) -> List[str]:
-    """Normalize a scalar or list value into a list of strings."""
-    if val is None:
-        return []
-    if isinstance(val, list):
-        return [str(v) for v in val if v is not None]
-    return [str(val)]
-
-
-def _load_history(path: str) -> List[Dict[str, Any]]:
-    """Load a local JSON history file."""
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def _build_examples(history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Convert local history records into LangSmith example dicts."""
-    examples: List[Dict[str, Any]] = []
-    for row in history:
-        user_messages = _coerce_list(
-            row.get("user_messages") or row.get("user_prompt") or row.get("user_message")
-        )
-        md_files = row.get("md_files") or []
-        md_chunks = []
-        for f in md_files:
-            name = f.get("name", "file")
-            text = f.get("text", "")
-            md_chunks.append(f"# {name}\n{text}".strip())
-
-        output = "\n\n".join(md_chunks).strip()
-        if not output:
-            output = str(row.get("subagent_output") or row.get("output") or "").strip()
-
-        ctx_parts = [
-            f"System prompt:\n{str(row.get('system_prompt', '')).strip()}",
-            "User messages:\n" + "\n".join(user_messages),
-        ]
-        extra_context = str(row.get("context7") or row.get("context") or "").strip()
-        if extra_context:
-            ctx_parts.append("Extra context:\n" + extra_context)
-
-        inputs = {
-            "input": "\n\n".join(ctx_parts).strip(),
-            "output": output,
-            "subagent_name": row.get("subagent_name", "unknown"),
-        }
-        examples.append({"inputs": inputs, "outputs": {}})
-    return examples
+def _build_context(
+    row: Dict[str, Any],
+    defaults: Dict[str, Any],
+) -> ContextSchema:
+    """Build ContextSchema from a dataset row with fallbacks."""
+    context = row.get("context") if isinstance(row.get("context"), dict) else {}
+    role = context.get("role") or row.get("role") or defaults.get("role")
+    resume = context.get("resume") or row.get("resume") or defaults.get("resume")
+    experience_level = (
+        context.get("experience_level")
+        or row.get("experience_level")
+        or defaults.get("experience_level")
+        or "intern"
+    )
+    years_of_experience = (
+        context.get("years_of_experience")
+        or row.get("years_of_experience")
+        or defaults.get("years_of_experience")
+    )
+    if not role:
+        logger.warning("Missing role in dataset row; using 'unknown'.")
+        role = "unknown"
+    return ContextSchema(
+        role=role,
+        resume=resume,
+        experience_level=experience_level,
+        years_of_experience=years_of_experience,
+    )
 
 
 def _has_openai_key() -> bool:
@@ -255,6 +237,155 @@ def _has_openai_key() -> bool:
 def _has_langsmith_key() -> bool:
     """Return True if LangSmith API key env var is set."""
     return bool(os.getenv("LANGSMITH_API_KEY") or os.getenv("LANGCHAIN_API_KEY"))
+
+
+def _load_history_rows(path: str) -> List[Dict[str, Any]]:
+    """Load local JSON rows from a history file."""
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _load_langsmith_rows(dataset_name: str) -> List[Dict[str, Any]]:
+    """Load input rows from a LangSmith dataset."""
+    client = Client()
+    rows: List[Dict[str, Any]] = []
+    for ex in client.list_examples(dataset_name=dataset_name):
+        row = dict(ex.inputs or {})
+        row["_example_id"] = str(ex.id)
+        rows.append(row)
+    return rows
+
+
+def _merge_input_context_rows(
+    inputs_rows: List[Dict[str, Any]],
+    context_rows: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Merge input rows with context rows by index."""
+    if len(inputs_rows) != len(context_rows):
+        raise SystemExit(
+            "Inputs and context datasets must have the same length. "
+            f"Got {len(inputs_rows)} inputs vs {len(context_rows)} context rows."
+        )
+
+    merged: List[Dict[str, Any]] = []
+    for input_row, context_row in zip(inputs_rows, context_rows):
+        row = dict(input_row)
+
+        context_payload: Dict[str, Any] = {}
+        if isinstance(context_row.get("context"), dict):
+            context_payload.update(context_row["context"])
+        for key in CONTEXT_KEYS:
+            if key in context_row and context_row[key] is not None:
+                context_payload.setdefault(key, context_row[key])
+
+        if context_payload:
+            row["context"] = context_payload
+
+        for key, value in context_row.items():
+            row.setdefault(key, value)
+
+        merged.append(row)
+    return merged
+
+
+def _md_files_to_map(md_files: List[Dict[str, str]]) -> Dict[str, str]:
+    """Convert list of md file dicts into a name->text mapping."""
+    md_map: Dict[str, str] = {}
+    for item in md_files:
+        name = item.get("name")
+        text = item.get("text", "")
+        if name:
+            md_map[str(name)] = str(text)
+    return md_map
+
+
+def _build_subagent_items(md_map: Dict[str, str]) -> List[Dict[str, str]]:
+    """Build per-subagent input/output pairs for evaluation."""
+    items: List[Dict[str, str]] = []
+    for subagent_name, prompt in SUBAGENT_PROMPTS.items():
+        file_names = SUBAGENT_FILES.get(subagent_name, [])
+        outputs: List[str] = []
+        for file_name in file_names:
+            text = md_map.get(file_name)
+            if text:
+                outputs.append(f"# {file_name}\\n{text}".strip())
+        if not outputs and file_names:
+            outputs.append("missing: " + ", ".join(file_names))
+        output_text = "\\n\\n".join(outputs).strip()
+        items.append(
+            {
+                "subagent_name": subagent_name,
+                "input": prompt,
+                "output": output_text,
+            }
+        )
+    return items
+
+
+async def _run_agent_for_row(row: Dict[str, Any], defaults: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Run the agent for a dataset row and return md file dicts."""
+    user_input = _extract_user_input(row)
+    if not user_input:
+        raise SystemExit("Missing user_input in dataset row.")
+    context = _build_context(row, defaults)
+    workflow = Workflow()
+    await asyncio.to_thread(workflow.invoke, user_input, context=context, config=workflow.config)
+    return workflow.list_md_files(workflow.config)
+
+
+async def _evaluate_subagent(item: Dict[str, str], example_id: str) -> Dict[str, Any]:
+    """Evaluate a single subagent output using conciseness and hallucination."""
+    conc_task = _conciseness_grader_async(item["input"], item["output"])
+    hall_task = _hallucination_grader_async(item["input"], item["output"])
+    conc, hall = await asyncio.gather(conc_task, hall_task)
+    return {
+        "example_id": example_id,
+        "subagent_name": item["subagent_name"],
+        "conciseness_score": conc.get("score"),
+        "conciseness_comment": conc.get("comment"),
+        "hallucination_score": hall.get("score"),
+        "hallucination_comment": hall.get("comment"),
+    }
+
+
+async def _evaluate_example(
+    row: Dict[str, Any],
+    defaults: Dict[str, Any],
+    example_id: str,
+) -> List[Dict[str, Any]]:
+    """Run agent for one example and evaluate all subagents in parallel."""
+    md_files = await _run_agent_for_row(row, defaults)
+    md_map = _md_files_to_map(md_files)
+    items = _build_subagent_items(md_map)
+    tasks = [
+        _evaluate_subagent(item, example_id)
+        for item in items
+    ]
+    return list(await asyncio.gather(*tasks))
+
+
+def _summarize_by_subagent(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    """Compute per-subagent summary stats for each metric."""
+    summary: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    for row in rows:
+        subagent = row.get("subagent_name", "unknown")
+        summary.setdefault(subagent, {})
+        for metric in METRICS:
+            scores = summary[subagent].setdefault(metric["key"], {"scores": []})
+            score = row.get(metric["score_field"])
+            if isinstance(score, (int, float)):
+                scores["scores"].append(float(score))
+
+    for subagent, metrics in summary.items():
+        for metric_key, data in metrics.items():
+            scores = data.get("scores", [])
+            metrics[metric_key] = {
+                "count": len(scores),
+                "avg": (sum(scores) / len(scores)) if scores else None,
+                "min": min(scores) if scores else None,
+                "max": max(scores) if scores else None,
+            }
+    return summary
 
 
 def _normalize_comment(text: Optional[str], limit: int = 160) -> str:
@@ -274,119 +405,31 @@ def _format_score(score: Optional[float]) -> str:
     return f"{score:.2f}"
 
 
-def _extract_eval_result(
-    eval_results: Iterable[Any], key: str
-) -> Tuple[Optional[float], Optional[str]]:
-    """Extract a specific evaluator result from a list of results."""
-    for result in eval_results:
-        if isinstance(result, dict):
-            result_key = result.get("key")
-            score = result.get("score")
-            comment = result.get("comment")
-        else:
-            result_key = getattr(result, "key", None)
-            score = getattr(result, "score", None)
-            comment = getattr(result, "comment", None)
-        if result_key == key:
-            try:
-                score = float(score) if score is not None else None
-            except Exception:
-                score = None
-            return score, comment
-    return None, None
-
-
-def _collect_langsmith_rows(results: Any) -> List[Dict[str, Any]]:
-    """Collect per-example evaluator scores from LangSmith results."""
-    rows: List[Dict[str, Any]] = []
-    for row in results:
-        example_inputs = getattr(row.get("example"), "inputs", {}) or {}
-        row_data: Dict[str, Any] = {
-            "subagent_name": example_inputs.get("subagent_name", "unknown")
-        }
-        eval_results = (row.get("evaluation_results") or {}).get("results", [])
-        for metric in METRICS:
-            score, comment = _extract_eval_result(eval_results, metric["key"])
-            row_data[metric["score_field"]] = score
-            row_data[metric["comment_field"]] = comment
-        rows.append(row_data)
-    return rows
-
-
-def _run_local_eval(examples: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Run evaluators locally without LangSmith logging."""
-    rows: List[Dict[str, Any]] = []
-    for ex in examples:
-        inputs = ex.get("inputs", {})
-        outputs = subagent_output_app(inputs)
-        row_data: Dict[str, Any] = {
-            "subagent_name": inputs.get("subagent_name", "unknown")
-        }
-        conc = conciseness_eval(inputs, outputs)
-        hall = hallucination_rate_eval(inputs, outputs)
-        row_data["conciseness_score"] = conc.get("score")
-        row_data["conciseness_comment"] = conc.get("comment")
-        row_data["hallucination_score"] = hall.get("score")
-        row_data["hallucination_comment"] = hall.get("comment")
-        rows.append(row_data)
-    return rows
-
-
-def _summarize_rows(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-    """Compute summary stats for each metric across rows."""
-    summary: Dict[str, Dict[str, Any]] = {}
-    for metric in METRICS:
-        scores = [
-            r.get(metric["score_field"])
-            for r in rows
-            if isinstance(r.get(metric["score_field"]), (int, float))
-        ]
-        summary[metric["key"]] = {
-            "count": len(rows),
-            "scored": len(scores),
-            "missing": len(rows) - len(scores),
-            "avg": (sum(scores) / len(scores)) if scores else None,
-            "min": min(scores) if scores else None,
-            "max": max(scores) if scores else None,
-        }
-    return summary
-
-
 def _render_markdown_summary(
-    summary: Dict[str, Dict[str, Any]],
+    summary: Dict[str, Dict[str, Dict[str, Any]]],
     rows: List[Dict[str, Any]],
     dataset_label: str,
-    experiment_name: Optional[str],
 ) -> str:
-    """Render a GitHub Actions summary table for eval results."""
-    lines = ["## Evals", f"Dataset: `{dataset_label}`"]
-    if experiment_name:
-        lines.append(f"LangSmith experiment: `{experiment_name}`")
-    lines.append("")
-    for metric in METRICS:
-        stats = summary.get(metric["key"], {})
-        direction = "higher is better" if metric["direction"] == "higher_better" else "lower is better"
-        lines.append(f"### {metric['label']} ({direction})")
-        lines.append(
-            "Examples: {count} (scored {scored}, missing {missing})".format(**stats)
-        )
-        if stats.get("avg") is not None:
-            lines.append(
-                "Average score: {avg:.2f} (min {min:.2f}, max {max:.2f})".format(
-                    **stats
-                )
-            )
+    """Render a GitHub Actions summary for eval results."""
+    lines = ["## Subagent evals", f"Dataset: `{dataset_label}`", ""]
+    for subagent, metrics in summary.items():
+        lines.append(f"### {subagent}")
+        for metric in METRICS:
+            stats = metrics.get(metric["key"], {})
+            direction = "higher is better" if metric["direction"] == "higher_better" else "lower is better"
+            lines.append(f"- {metric['label']} ({direction}): avg={_format_score(stats.get('avg'))}")
         lines.append("")
 
-    lines.append("| Subagent | Conciseness | Hallucination rate | Conciseness comment | Hallucination comment |")
-    lines.append("| --- | --- | --- | --- | --- |")
+    lines.append("| Example | Subagent | Conciseness | Hallucination rate | Conciseness comment | Hallucination comment |")
+    lines.append("| --- | --- | --- | --- | --- | --- |")
     for row in rows:
         conc_comment = _normalize_comment(row.get("conciseness_comment"))
         hall_comment = _normalize_comment(row.get("hallucination_comment"))
         conc_comment = conc_comment.replace("|", "\\|")
         hall_comment = hall_comment.replace("|", "\\|")
         lines.append(
-            "| {subagent} | {conc} | {hall} | {conc_comment} | {hall_comment} |".format(
+            "| {example_id} | {subagent} | {conc} | {hall} | {conc_comment} | {hall_comment} |".format(
+                example_id=row.get("example_id", "-"),
                 subagent=row.get("subagent_name", "unknown"),
                 conc=_format_score(row.get("conciseness_score")),
                 hall=_format_score(row.get("hallucination_score")),
@@ -395,7 +438,7 @@ def _render_markdown_summary(
             )
         )
     lines.append("")
-    return "\n".join(lines)
+    return "\\n".join(lines)
 
 
 def _write_github_summary(markdown: str) -> None:
@@ -405,128 +448,85 @@ def _write_github_summary(markdown: str) -> None:
         return
     with open(summary_path, "a", encoding="utf-8") as f:
         f.write(markdown)
-        if not markdown.endswith("\n"):
-            f.write("\n")
+        if not markdown.endswith("\\n"):
+            f.write("\\n")
 
 
-# Step 2. Select dataset (LangSmith dataset or local JSON)
-# Step 4. Run evaluation
-
-def main() -> None:
-    """CLI entrypoint for running evals locally or via LangSmith."""
-    parser = argparse.ArgumentParser(description="Run evals over subagent outputs.")
-    parser.add_argument(
-        "--history",
-        help="Path to local JSON history dataset.",
-    )
-    parser.add_argument(
-        "--dataset",
-        help="LangSmith dataset name or UUID (to run evals in LangSmith).",
-    )
-    parser.add_argument(
-        "--sync-dataset",
-        action="store_true",
-        help="If set, upsert local --history into the LangSmith dataset before evaluating.",
-    )
-    parser.add_argument(
-        "--experiment-prefix",
-        default="subagent-evals",
-        help="Prefix for the LangSmith experiment name.",
-    )
-    parser.add_argument(
-        "--langsmith",
-        choices=["auto", "on", "off"],
-        default="auto",
-        help="Whether to log results to LangSmith (auto=only if --dataset and key are set).",
-    )
-    args = parser.parse_args()
-
+async def _run_evals_async(args: argparse.Namespace) -> List[Dict[str, Any]]:
+    """Run agent and evals over the chosen dataset."""
     if not _has_openai_key():
         raise SystemExit("OPENAI_API_KEY is required to run evals.")
 
-    use_langsmith: bool
-    if args.langsmith == "on":
+    defaults = {
+        "role": args.role,
+        "resume": args.resume,
+        "experience_level": args.experience_level,
+        "years_of_experience": args.years_of_experience,
+    }
+
+    if args.inputs_dataset or args.context_dataset:
+        if not (args.inputs_dataset and args.context_dataset):
+            raise SystemExit("--inputs-dataset and --context-dataset must be provided together.")
         if not _has_langsmith_key():
-            raise SystemExit("LANGCHAIN_API_KEY or LANGSMITH_API_KEY required for --langsmith on.")
-        if not args.dataset:
-            raise SystemExit("--dataset is required for --langsmith on.")
-        use_langsmith = True
-    elif args.langsmith == "auto":
-        use_langsmith = bool(args.dataset and _has_langsmith_key())
-    else:
-        use_langsmith = False
-
-    experiment_name: Optional[str] = None
-    dataset_label: str
-
-    if use_langsmith:
-        ls_client = Client()
-        if args.sync_dataset:
-            if not args.history:
-                raise SystemExit("--history is required when using --sync-dataset.")
-            history = _load_history(args.history)
-            if not history:
-                raise SystemExit("No history entries found.")
-            examples = _build_examples(history)
-            if not ls_client.has_dataset(dataset_name=args.dataset):
-                ls_client.create_dataset(dataset_name=args.dataset)
-            ls_client.create_examples(dataset_name=args.dataset, examples=examples)
+            raise SystemExit("LANGCHAIN_API_KEY or LANGSMITH_API_KEY required for LangSmith datasets.")
+        input_rows = _load_langsmith_rows(args.inputs_dataset)
+        context_rows = _load_langsmith_rows(args.context_dataset)
+        rows = _merge_input_context_rows(input_rows, context_rows)
+        dataset_label = f"{args.inputs_dataset} + {args.context_dataset}"
+    elif args.inputs_history or args.context_history:
+        if not (args.inputs_history and args.context_history):
+            raise SystemExit("--inputs-history and --context-history must be provided together.")
+        input_rows = _load_history_rows(args.inputs_history)
+        context_rows = _load_history_rows(args.context_history)
+        rows = _merge_input_context_rows(input_rows, context_rows)
+        dataset_label = f"{args.inputs_history} + {args.context_history}"
+    elif args.dataset:
+        if not _has_langsmith_key():
+            raise SystemExit("LANGCHAIN_API_KEY or LANGSMITH_API_KEY required for --dataset.")
+        rows = _load_langsmith_rows(args.dataset)
         dataset_label = args.dataset
-        results = ls_client.evaluate(
-            subagent_output_app,
-            data=args.dataset,
-            evaluators=[conciseness_eval, hallucination_rate_eval],
-            experiment_prefix=args.experiment_prefix,
-            description="Conciseness and hallucination-rate evals for subagent outputs.",
-            max_concurrency=0,
-        )
-        rows = _collect_langsmith_rows(results)
-        experiment_name = getattr(results, "experiment_name", None)
     else:
         if not args.history:
-            raise SystemExit("--history is required when not using LangSmith.")
-        history = _load_history(args.history)
-        if not history:
-            raise SystemExit("No history entries found.")
-        examples = _build_examples(history)
+            raise SystemExit("--history is required when not using --dataset.")
+        rows = _load_history_rows(args.history)
         dataset_label = args.history
-        rows = _run_local_eval(examples)
 
-    summary = _summarize_rows(rows)
+    all_rows: List[Dict[str, Any]] = []
+    for idx, row in enumerate(rows):
+        example_id = row.get("_example_id") or str(idx)
+        results = await _evaluate_example(row, defaults, example_id)
+        all_rows.extend(results)
 
-    print("Evals")
-    print(f"Dataset: {dataset_label}")
-    if experiment_name:
-        print(f"LangSmith experiment: {experiment_name}")
-    for metric in METRICS:
-        stats = summary.get(metric["key"], {})
-        direction = "higher is better" if metric["direction"] == "higher_better" else "lower is better"
-        print(f"{metric['label']} ({direction})")
-        print(
-            "Examples: {count} (scored {scored}, missing {missing})".format(**stats)
-        )
-        if stats.get("avg") is not None:
-            print(
-                "Average score: {avg:.2f} (min {min:.2f}, max {max:.2f})".format(
-                    **stats
-                )
-            )
-    for row in rows:
-        conc_comment = _normalize_comment(row.get("conciseness_comment"))
-        hall_comment = _normalize_comment(row.get("hallucination_comment"))
-        print(
-            "- {name}: conciseness {conc} | hallucination {hall}"
-            " | conc: {conc_comment} | hall: {hall_comment}".format(
-                name=row.get("subagent_name", "unknown"),
-                conc=_format_score(row.get("conciseness_score")),
-                hall=_format_score(row.get("hallucination_score")),
-                conc_comment=conc_comment,
-                hall_comment=hall_comment,
-            )
-        )
-
-    markdown = _render_markdown_summary(summary, rows, dataset_label, experiment_name)
+    summary = _summarize_by_subagent(all_rows)
+    markdown = _render_markdown_summary(summary, all_rows, dataset_label)
     _write_github_summary(markdown)
+
+    return all_rows
+
+
+def main() -> None:
+    """CLI entrypoint for running subagent evals."""
+    parser = argparse.ArgumentParser(description="Run subagent evals over a dataset.")
+    parser.add_argument("--history", help="Path to local JSON dataset.")
+    parser.add_argument("--dataset", help="LangSmith dataset name or UUID.")
+    parser.add_argument("--inputs-history", help="Path to local JSON dataset with user inputs.")
+    parser.add_argument("--context-history", help="Path to local JSON dataset with context.")
+    parser.add_argument("--inputs-dataset", help="LangSmith dataset name/UUID with user inputs.")
+    parser.add_argument("--context-dataset", help="LangSmith dataset name/UUID with context.")
+    parser.add_argument("--role", help="Default role if not provided by examples.")
+    parser.add_argument("--resume", help="Default resume if not provided by examples.")
+    parser.add_argument("--experience-level", default="intern", help="Default experience level.")
+    parser.add_argument("--years-of-experience", type=int, help="Default years of experience.")
+    args = parser.parse_args()
+
+    if not args.dataset and not args.history:
+        default_history = Path("data/subagent_outputs.sample.json")
+        if default_history.exists():
+            args.history = str(default_history)
+            logger.info("Using default history dataset: %s", args.history)
+
+    results = asyncio.run(_run_evals_async(args))
+    print(f"Completed subagent evals: {len(results)} rows")
 
 
 if __name__ == "__main__":
