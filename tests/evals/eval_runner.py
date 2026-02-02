@@ -66,7 +66,7 @@ async def run_agent_for_row(
         raise SystemExit("Missing user_input in dataset row.")
     context = build_context(row, defaults)
     workflow = Workflow()
-    await asyncio.to_thread(workflow.invoke, user_input, context=context, config=workflow.config)
+    await asyncio.to_thread(workflow.invoke, user_input, context=context)
     final_state = workflow.get_final_state()
     md_files = workflow.list_md_files(workflow.config)
     history = None

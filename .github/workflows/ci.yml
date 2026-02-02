@@ -31,5 +31,4 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
-        run: uv run python tests/evals/evals.py --history data/subagent_outputs.sample.json
-
+        run: uv run python tests/evals/evals.py --dataset tests/evals/dataset/dataset.py
