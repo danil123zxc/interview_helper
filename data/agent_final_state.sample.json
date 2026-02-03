@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LangGraphCheckpointTuple",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "config",
+    "checkpoint"
+  ],
+  "properties": {
+    "config": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "configurable"
+      ],
+      "properties": {
+        "configurable": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "thread_id",
+            "checkpoint_id",
+            "checkpoint_ns"
+          ],
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            },
+            "checkpoint_id": {
+              "type": "string"
+            },
+            "checkpoint_ns": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "v",
+        "id",
+        "ts",
+        "channel_values",
+        "channel_versions"
+      ],
+      "properties": {
+        "v": {
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "versions_seen": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "channel_values": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "files": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "required": [
+                  "content",
+                  "created_at",
+                  "modified_at"
+                ],
+                "properties": {
+                  "content": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "created_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "modified_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            },
+            "todos": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "content",
+                  "status"
+                ],
+                "properties": {
+                  "content": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": true
+              }
+            },
+            "messages": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "content"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string"
+                  },
+                  "role": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {},
+                  "id": {
+                    "type": "string"
+                  },
+                  "tool_calls": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "args"
+                      ],
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "args": {
+                          "type": "object",
+                          "additionalProperties": true
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": true
+                    }
+                  },
+                  "response_metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "usage_metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "additional_kwargs": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                },
+                "additionalProperties": true
+              }
+            },
+            "__pregel_tasks": {
+              "type": "array",
+              "items": {}
+            }
+          }
+        },
+        "channel_versions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "updated_channels": {
+          "type": "array",
+          "items": {}
+        }
+      }
+    },
+    "metadata": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": true
+    },
+    "parent_config": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": true
+    },
+    "pending_writes": {
+      "type": "array",
+      "items": {}
+    }
+  }
+}

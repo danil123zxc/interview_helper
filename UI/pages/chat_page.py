@@ -1,5 +1,6 @@
 import itertools
 import logging
+import time
 import uuid
 
 import streamlit as st
@@ -8,7 +9,7 @@ from dotenv import load_dotenv
 switch_page = getattr(st, "switch_page", None)
 
 from src.db import workflow_ctx
-from src.logging_config import setup_logging, init_sentry
+from src.logging_config import setup_logging, init_sentry, logging_context
 
 load_dotenv()
 
@@ -61,6 +62,8 @@ def _new_chat():
 
 
 def main():
+    setup_logging()
+    init_sentry()
     st.set_page_config(page_title="Chat", page_icon="💬", layout="wide")
     _ensure_state()
 
@@ -147,26 +150,37 @@ def main():
                 ]
             )
             try:
-                with workflow_ctx() as wf:
-                    
-                    for chunk in wf.stream_ai_response(
-                        user_input=prompt,
-                        context=st.session_state.context_model,
-                        messages=conversation_messages,
-                        config=current_config,
-                        include_md_files=False,
-                    ):
-                        tool_placeholder.info(next(spinner_cycle))
-                        text = (
-                            chunk
-                            if isinstance(chunk, str)
-                            else "".join(chunk) if isinstance(chunk, list) else str(chunk)
-                        )
-                        resp_parts.append(text)
-                        yield text
+                thread_id = current_config.get("configurable", {}).get("thread_id")
+                start = time.monotonic()
+                with logging_context(thread_id=thread_id):
+                    with workflow_ctx() as wf:
+                        for chunk in wf.stream_ai_response(
+                            user_input=prompt,
+                            context=st.session_state.context_model,
+                            messages=conversation_messages,
+                            config=current_config,
+                            include_md_files=False,
+                        ):
+                            tool_placeholder.info(next(spinner_cycle))
+                            text = (
+                                chunk
+                                if isinstance(chunk, str)
+                                else "".join(chunk) if isinstance(chunk, list) else str(chunk)
+                            )
+                            resp_parts.append(text)
+                            yield text
 
-                    md_files = wf.list_md_files(config=current_config)
-                    logger.debug("State history:\n" + wf.agent.get_state_history(current_config))
+                        md_files = wf.list_md_files(config=current_config)
+                        history = wf.agent.get_state_history(current_config)
+                        if history:
+                            history_clean = " ".join(str(history).split())
+                            logger.debug(
+                                "State history (truncated): %s",
+                                history_clean[:800] + ("..." if len(history_clean) > 800 else ""),
+                            )
+
+                elapsed = time.monotonic() - start
+                logger.info("Chat response completed in %.2fs", elapsed)
 
                 tool_placeholder.empty()
                 if resp_parts:
@@ -177,6 +191,7 @@ def main():
                     st.session_state.messages.append({"role": "assistant", "content": msg})
             except Exception as exc:
                 tool_placeholder.empty()
+                logger.exception("Agent error")
                 error_placeholder.error(f"Agent error: {exc}")
                 st.session_state.messages.append({"role": "assistant", "content": f"Agent error: {exc}"})
 

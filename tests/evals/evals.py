@@ -1,177 +1,176 @@
-"""
-Conciseness evaluation for subagent markdown outputs.
+"""Evaluation runner for subagent outputs.
 
-Expected input data (JSON file passed via --history):
+Workflow:
+1) Run the agent on each dataset example.
+2) Wait until the run completes.
+3) Read the final state markdown files.
+4) Evaluate each subagent independently using its execution history from
+   the final state as input and its markdown files as output.
+
+Dataset sources:
+- --dataset: LangSmith dataset name/UUID or a local path (.json or .py).
+If not provided, uses tests/evals/dataset/dataset.py (EXAMPLES).
+Local datasets are uploaded to LangSmith automatically when API keys are available.
+
+Local JSON format (minimal):
 [
   {
-    "subagent_name": "analyze_agent",
-    "system_prompt": "... full system prompt passed to the subagent ...",
-    "user_messages": ["human prompt 1", "human prompt 2"],  # or a single string
-    "md_files": [
-      {"name": "analysis.md", "text": "...markdown content..."},
-      {"name": "extra.md", "text": "...optional..."}
-    ]
-  },
-  ...
+    "user_input": "Help me prepare for ...",
+    "context": {
+      "role": "AI engineer",
+      "resume": "...",
+      "experience_level": "intern",
+      "years_of_experience": 0
+    }
+  }
 ]
-
-For each row we build an eval example where:
-- input  = system prompt + human prompts (the subagent's context)
-- output = concatenated markdown file contents produced by that subagent
-
-We then run a LangSmith StringEvaluator that grades conciseness (0–1) with a short comment.
 """
 
 import argparse
-import json
+import asyncio
 import logging
+from pathlib import Path
 from typing import Any, Dict, List
 
-from langchain.chat_models import init_chat_model
-from langsmith import Client
-from langsmith.evaluation import StringEvaluator, evaluate
+from src.logging_config import setup_logging
+from tests.evals.dataset.eval_dataset import (
+    default_dataset_name,
+    has_langsmith_key,
+    has_openai_key,
+    load_history_rows,
+    load_langsmith_rows,
+    load_module_rows,
+    should_upload,
+    upload_rows_to_langsmith,
+)
+from tests.evals.eval_reporting import (
+    render_markdown_summary,
+    summarize_by_subagent,
+    write_github_summary,
+)
+from tests.evals.eval_runner import evaluate_example
 
 logger = logging.getLogger(__name__)
-client = Client()
 
 
-def _extract_text(resp: Any) -> str:
-    """Best-effort stringify LLM responses."""
-    if resp is None:
-        return ""
-    if isinstance(resp, str):
-        return resp
-    content = getattr(resp, "content", resp)
-    if isinstance(content, list):
-        return " ".join(str(c) for c in content if c)
-    return str(content)
+async def _run_evals_async(args: argparse.Namespace) -> List[Dict[str, Any]]:
+    """Run agent and evals over the chosen dataset.
+
+    Args:
+        args: Parsed CLI arguments with an optional dataset path or LangSmith name.
+
+    Returns:
+        Flattened list of evaluation result dicts (one per subagent per example).
+
+    Example:
+        ```python
+        args = argparse.Namespace(dataset="tests/evals/dataset/dataset.py")
+        results = asyncio.run(_run_evals_async(args))
+        # len(results) >= 1 when dataset has examples
+        ```
+    """
+    if not has_openai_key():
+        raise SystemExit("OPENAI_API_KEY is required to run evals.")
+
+    defaults = {
+        "role": None,
+        "resume": None,
+        "experience_level": "intern",
+        "years_of_experience": None,
+    }
+
+    uploaded_names: List[str] = []
+
+    if args.dataset:
+        dataset_path = Path(args.dataset)
+        if dataset_path.exists():
+            suffix = dataset_path.suffix.lower()
+            if suffix == ".py":
+                rows = load_module_rows(str(dataset_path))
+                dataset_label = str(dataset_path)
+                if should_upload():
+                    dataset_name = default_dataset_name(str(dataset_path), "module")
+                    try:
+                        if upload_rows_to_langsmith(dataset_name, rows):
+                            uploaded_names.append(dataset_name)
+                    except Exception as exc:
+                        logger.warning("LangSmith upload failed: %s", exc)
+            elif suffix == ".json":
+                rows = load_history_rows(str(dataset_path))
+                dataset_label = str(dataset_path)
+                if should_upload():
+                    dataset_name = default_dataset_name(str(dataset_path), "json")
+                    try:
+                        if upload_rows_to_langsmith(dataset_name, rows):
+                            uploaded_names.append(dataset_name)
+                    except Exception as exc:
+                        logger.warning("LangSmith upload failed: %s", exc)
+            else:
+                raise SystemExit("Unsupported dataset path. Use a .json or .py file.")
+        else:
+            if not has_langsmith_key():
+                raise SystemExit("LANGCHAIN_API_KEY or LANGSMITH_API_KEY required for LangSmith datasets.")
+            rows = load_langsmith_rows(args.dataset)
+            dataset_label = args.dataset
+    else:
+        module_path = Path("tests/evals/dataset/dataset.py")
+        if not module_path.exists():
+            raise SystemExit("Default dataset module not found: tests/evals/dataset/dataset.py")
+        rows = load_module_rows(str(module_path))
+        dataset_label = str(module_path)
+        if should_upload():
+            dataset_name = default_dataset_name(str(module_path), "module")
+            try:
+                if upload_rows_to_langsmith(dataset_name, rows):
+                    uploaded_names.append(dataset_name)
+            except Exception as exc:
+                logger.warning("LangSmith upload failed: %s", exc)
+
+    if uploaded_names:
+        dataset_label = f"{dataset_label} (uploaded to {', '.join(uploaded_names)})"
+
+    all_rows: List[Dict[str, Any]] = []
+    for idx, row in enumerate(rows):
+        example_id = row.get("_example_id") or str(idx)
+        results = await evaluate_example(row, defaults, example_id)
+        all_rows.extend(results)
+
+    summary = summarize_by_subagent(all_rows)
+    markdown = render_markdown_summary(summary, all_rows, dataset_label)
+    write_github_summary(markdown)
+
+    return all_rows
 
 
-def _call_judge(prompt: str) -> Dict[str, Any]:
-    """Call the judge LLM and coerce a JSON-ish reply."""
-    judge = init_chat_model(model="gpt-5-mini", model_provider="openai", temperature=0)
-    raw = judge.invoke(prompt)
-    text = _extract_text(raw).strip()
+def main() -> None:
+    """CLI entrypoint for running subagent evals.
 
-    try:
-        parsed = json.loads(text)
-    except Exception:
-        parsed = {}
-        lower = text.lower()
-        if "score" in lower:
-            for token in text.replace(",", " ").split():
-                try:
-                    val = float(token)
-                    if 0 <= val <= 1:
-                        parsed["score"] = val
-                        break
-                except Exception:
-                    continue
-        parsed.setdefault("comment", text or "No comment")
+    Args:
+        None. Arguments are parsed from sys.argv.
 
-    score = parsed.get("score")
-    try:
-        score = float(score) if score is not None else None
-    except Exception:
-        score = None
-    return {"score": score, "comment": parsed.get("comment", text)}
+    Returns:
+        None. Prints a completion line to stdout.
 
-
-def _conciseness_grader(inp: str, pred: str, _: str | None) -> Dict[str, Any]:
-    prompt = f"""
-You score subagent markdown outputs for conciseness.
-Context (system + human prompts):
-{inp}
-
-Subagent markdown output:
-{pred}
-
-Return JSON: {{"score": number between 0 and 1, "comment": "brief reason + trim suggestion"}}.
-Score 1 = fully concise and on-topic. Score 0 = verbose, repetitive, off-task.
-"""
-    result = _call_judge(prompt)
-    result["key"] = "conciseness"
-    return result
-
-
-conciseness_eval = StringEvaluator(
-    evaluation_name="conciseness",
-    input_key="input",
-    prediction_key="output",
-    grading_function=_conciseness_grader,
-)
-
-
-def _coerce_list(val: Any) -> List[str]:
-    if val is None:
-        return []
-    if isinstance(val, list):
-        return [str(v) for v in val if v is not None]
-    return [str(val)]
-
-
-def _load_history(path: str) -> List[Dict[str, Any]]:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def _build_examples(history: List[Dict[str, Any]]) -> List[Dict[str, str]]:
-    examples: List[Dict[str, str]] = []
-    for row in history:
-        user_messages = _coerce_list(row.get("user_messages"))
-        md_files = row.get("md_files") or []
-        md_chunks = []
-        for f in md_files:
-            name = f.get("name", "file")
-            text = f.get("text", "")
-            md_chunks.append(f"# {name}\n{text}".strip())
-
-        ctx_parts = [
-            f"System prompt:\n{row.get('system_prompt', '').strip()}",
-            "User messages:\n" + "\n".join(user_messages),
-        ]
-
-        examples.append(
-            {
-                "input": "\n\n".join(ctx_parts).strip(),
-                "output": "\n\n".join(md_chunks).strip(),
-                "subagent_name": row.get("subagent_name", "unknown"),
-            }
-        )
-    return examples
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Run conciseness evals over subagent markdown outputs.")
+    Example:
+        ```python
+        # CLI usage:
+        # python tests/evals/evals.py --dataset tests/evals/dataset/dataset.py
+        #
+        # Output includes:
+        # "Completed subagent evals: <N> rows"
+        ```
+    """
+    parser = argparse.ArgumentParser(description="Run subagent evals over a dataset.")
     parser.add_argument(
-        "--history",
-        required=True,
-        help="Path to JSON history with subagent_name/system_prompt/user_messages/md_files fields.",
-    )
-    parser.add_argument(
-        "--experiment-prefix",
-        default="subagent-conciseness",
-        help="Prefix for the LangSmith experiment name.",
+        "--dataset",
+        help="LangSmith dataset name/UUID or local path (.json or .py).",
     )
     args = parser.parse_args()
 
-    history = _load_history(args.history)
-    if not history:
-        raise SystemExit("No history entries found.")
-
-    data = _build_examples(history)
-
-    results = evaluate(
-        lambda ex: {"output": ex["output"]},
-        data=data,
-        evaluators=[conciseness_eval],
-        experiment_prefix=args.experiment_prefix,
-        description="Conciseness of subagent markdown outputs vs provided prompts.",
-        metadata={"source": "local-subagent-history"},
-    )
-    print(f"View results in LangSmith: {results.experiment_url}")
+    results = asyncio.run(_run_evals_async(args))
+    print(f"Completed subagent evals: {len(results)} rows")
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    setup_logging()
     main()

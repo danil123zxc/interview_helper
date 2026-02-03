@@ -1,4 +1,7 @@
+import asyncio
 import logging
+import os
+import time
 from typing import Any, Dict, List, Optional
 
 from deepagents import create_deep_agent
@@ -20,6 +23,7 @@ from src.prompts import (deep_agent_prompt,
                          job_posting_ingestor_prompt)
 
 from src.schemas import ContextSchema
+from src.logging_config import logging_context
 from src.tools.context_middleware import context_middleware
 from src.tools.tools import build_tools
 from langchain.agents.middleware import PIIMiddleware
@@ -42,7 +46,7 @@ class Workflow:
         middleware: Optional[List[Any]] = None,
     ):
         self.llm = llm if llm else init_chat_model(
-            model="gpt-5-mini",
+            model="gpt-5-nano",
             model_provider="openai",
             temperature=0,
         )
@@ -62,14 +66,13 @@ class Workflow:
                 "description": "Ingest job posting text or link into job_posting.md",
                 "system_prompt": job_posting_ingestor_prompt,
                 "tools": [self.tools.get("tavily_extract")],
-                "middleware": [context_middleware],
             },
             {
                 "name": "analyze_agent",
                 "description": "Analyze resume vs job posting; identify fit, gaps, rewrites with metrics placeholders.",
                 "system_prompt": analyze_agent_prompt,
                 "middleware": [context_middleware],
-            },
+            },  
             {
                 "name": "research_agent",
                 "description": "Research company/role/industry; return concise bullets with sources and implications.",
@@ -79,13 +82,11 @@ class Workflow:
                     self.tools.get("tavily_extract"),
                     self.tools.get("reddit_search"),
                 ],
-                "middleware": [context_middleware],
             },
             {
                 "name": "question_writer",
                 "description": "Generates a balanced set of 10 interview questions (behavioral + role-specific) with concise, structured example answers.",
                 "system_prompt": question_writer_prompt,
-                "middleware": [context_middleware],
                 "tools": [
                     
                     self.tools.get("tavily_search"),
@@ -119,6 +120,114 @@ class Workflow:
     def _create_config(self) -> Dict[str, Any]:
         return {"configurable": {"thread_id": f"thread_{uuid7()}"}}
 
+    def _run_coro(self, coro, *, label: str) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                asyncio.run(coro)
+            except Exception as exc:
+                logger.debug("%s failed: %s", label, exc)
+            return
+
+        task = loop.create_task(coro)
+
+        def _on_done(t: asyncio.Task):
+            try:
+                t.result()
+            except Exception as exc:
+                logger.debug("%s failed: %s", label, exc)
+
+        task.add_done_callback(_on_done)
+
+    def _maybe_ingest_web_context(
+        self,
+        user_input: str,
+        context: ContextSchema,
+        *,
+        config: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        enabled = os.getenv("RAG_INGEST_ENABLED", "true").strip().lower()
+        if enabled not in {"1", "true", "yes", "on"}:
+            return
+
+        if not self.tools:
+            return
+
+        tavily_search = self.tools.get("tavily_search")
+        tavily_extract = self.tools.get("tavily_extract")
+        if not tavily_search or not tavily_extract:
+            return
+
+        try:
+            from langchain_openai import OpenAIEmbeddings
+            from src.tools.rag import extract_urls, ingest_relevant_websites
+        except Exception as exc:
+            logger.debug("RAG ingest setup failed: %s", exc)
+            return
+
+        seed_urls = extract_urls(user_input)
+        index_name = os.getenv("RAG_INDEX_NAME", "web")
+        node_label = os.getenv("RAG_NODE_LABEL", "WebPage")
+        try:
+            max_urls = int(os.getenv("RAG_MAX_URLS", "10"))
+        except ValueError:
+            max_urls = 10
+
+        extra_metadata: Dict[str, Any] = {}
+        thread_id = None
+        if config and isinstance(config, dict):
+            thread_id = config.get("configurable", {}).get("thread_id")
+        if thread_id:
+            extra_metadata["thread_id"] = thread_id
+        role = getattr(context, "role", None)
+        if role:
+            extra_metadata["role"] = role
+
+        coro = ingest_relevant_websites(
+            query=user_input,
+            tavily_search=tavily_search,
+            tavily_extract=tavily_extract,
+            embedding=OpenAIEmbeddings(),
+            index_name=index_name,
+            node_label=node_label,
+            seed_urls=seed_urls,
+            extra_metadata=extra_metadata,
+            max_urls=max_urls,
+        )
+        self._run_coro(coro, label="RAG ingest")
+
+    def get_final_state(self) -> Any:
+
+        """Return the final agent state after a run."""
+        try:
+            state = self.agent.get_state(self.config)
+        except Exception as exc:
+            logger.warning("Failed to load final state: %s", exc)
+            return None
+        return state
+    
+    def invoke(
+        self,
+        user_input: str,
+        context: ContextSchema,
+        *,
+        config: Optional[Dict[str, Any]] = None,
+        messages: Optional[List[Dict[str, Any]]] = None,
+    ):
+        """Run the agent once (non-streaming), with optional RAG ingestion."""
+        config = self._create_config() if not config else config
+        self.config = config
+        thread_id = config.get("configurable", {}).get("thread_id") if isinstance(config, dict) else None
+        start = time.monotonic()
+        with logging_context(thread_id=thread_id):
+            self._maybe_ingest_web_context(user_input, context, config=config)
+            payload = {"messages": messages} if messages else {"messages": [{"role": "user", "content": user_input}]}
+            result = self.agent.invoke(payload, config=config, context=context)
+        elapsed = time.monotonic() - start
+        logger.info("Invoke completed in %.2fs", elapsed)
+        return result
+
     def stream_all(
         self,
         user_input: str,
@@ -130,39 +239,46 @@ class Workflow:
         config = self._create_config() if not config else config
         self.config = config
         thread_id = config["configurable"].get("thread_id") if isinstance(config, dict) else None
-        logger.info(
-            "Starting stream",
-            extra={"thread_id": thread_id, "role": getattr(context, "role", None)},
-        )
-
-        collected_text: List[str] = []
-        payload = {"messages": messages} if messages else {"messages": [{"role": "user", "content": user_input}]}
-
-        for message_chunk, metadata in self.agent.stream(payload, stream_mode="messages", config=config, context=context):
-            content = message_chunk.content
-            if isinstance(content, list):
-                content = " ".join(str(c) for c in content if c)
-            if content:
-                collected_text.append(content)
-            yield message_chunk
-
-        final_snippet = (" ".join(collected_text) if collected_text else "")[:500].replace("\n", " ")
-        md_files = self._iter_md_files_from_state(config) or self._iter_md_files_from_checkpoint(config)
-        if md_files:
-            file_names = [md.get("name") for md in md_files if isinstance(md, dict)]
+        start = time.monotonic()
+        with logging_context(thread_id=thread_id):
+            self._maybe_ingest_web_context(user_input, context, config=config)
             logger.info(
-                "Final markdown files available",
-                extra={
-                    "thread_id": thread_id,
-                    "role": getattr(context, "role", None),
-                    "files": file_names,
-                },
+                "Starting stream",
+                extra={"thread_id": thread_id, "role": getattr(context, "role", None)},
             )
 
-        logger.info(
-            "Stream completed",
-            extra={"thread_id": thread_id, "role": getattr(context, "role", None), "snippet": final_snippet},
-        )
+            collected_text: List[str] = []
+            payload = {"messages": messages} if messages else {"messages": [{"role": "user", "content": user_input}]}
+
+            for message_chunk, metadata in self.agent.stream(
+                payload, stream_mode="messages", config=config, context=context
+            ):
+                content = message_chunk.content
+                if isinstance(content, list):
+                    content = " ".join(str(c) for c in content if c)
+                if content:
+                    collected_text.append(content)
+                yield message_chunk
+
+            final_snippet = (" ".join(collected_text) if collected_text else "")[:500].replace("\n", " ")
+            md_files = self._iter_md_files_from_state(config) or self._iter_md_files_from_checkpoint(config)
+            if md_files:
+                file_names = [md.get("name") for md in md_files if isinstance(md, dict)]
+                logger.info(
+                    "Final markdown files available",
+                    extra={
+                        "thread_id": thread_id,
+                        "role": getattr(context, "role", None),
+                        "files": file_names,
+                    },
+                )
+
+            elapsed = time.monotonic() - start
+            logger.info(
+                "Stream completed in %.2fs",
+                elapsed,
+                extra={"thread_id": thread_id, "role": getattr(context, "role", None), "snippet": final_snippet},
+            )
 
     def stream_content(self, user_input: str, context: ContextSchema):
         """Yield content (any role) as strings."""

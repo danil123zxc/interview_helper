@@ -1,5 +1,7 @@
+import json
 import logging
 import os
+import time
 from dotenv import load_dotenv
 from langchain_tavily import TavilyExtract
 from langchain_tavily import TavilySearch
@@ -20,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 def main():
 
-    user_input = "Help me to prepare for the interview https://careers.upstage.ai/o/ai-agent-engineer"
+    user_input = "Help me to prepare for the interview https://careers.kakao.com/jobs/P-14347?skillSet=&part=TECHNOLOGY&company=KAKAO&keyword=&employeeType=&page=1"
 
     context = ContextSchema(
         role="AI engineer",
@@ -88,12 +90,61 @@ def main():
     )
     logger.info("Starting workflow run with Postgres checkpointing")
 
-    with workflow_ctx() as workflow:
+    def _truncate_for_log(value, limit: int = 1200) -> str:
+        if value is None:
+            return ""
+        try:
+            text = json.dumps(value, default=str)
+        except Exception:
+            text = str(value)
+        text = " ".join(text.split())
+        if len(text) <= limit:
+            return text
+        return text[: max(0, limit - 3)] + "..."
 
-        res = workflow.agent.invoke(user_input, config=workflow.config, context=context)
-        logger.debug(workflow.agent.get_state_history(workflow.config))
+    def _log_final_state(wf: Workflow) -> None:
+        try:
+            state = wf.get_final_state()
+        except Exception as exc:
+            logger.warning("Failed to load final state: %s", exc, exc_info=True)
+            return
 
-        logger.info("Workflow run finished")
+        if isinstance(state, dict):
+            state_obj = state.get("values") or state.get("state") or state
+        else:
+            state_obj = getattr(state, "values", None) or getattr(state, "state", None) or state
+
+        state_keys = list(state_obj.keys()) if isinstance(state_obj, dict) else []
+        md_files = []
+        try:
+            md_files = wf.list_md_files(wf.config)
+        except Exception as exc:
+            logger.warning("Failed to load markdown files from state: %s", exc, exc_info=True)
+
+        file_names = [f.get("name") for f in md_files if isinstance(f, dict)]
+        logger.info("Final state keys: %s", state_keys)
+        logger.info("Final markdown files: %s", file_names)
+        logger.debug("Final state summary: %s", _truncate_for_log(state_obj))
+
+    try:
+        with workflow_ctx() as workflow:
+            start = time.monotonic()
+            res = workflow.invoke(user_input, context=context, config=workflow.config)
+            elapsed = time.monotonic() - start
+            logger.info("Workflow run finished in %.2fs", elapsed)
+            _log_final_state(workflow)
+    except Exception as exc:
+        logger.warning(
+            "Postgres workflow failed, falling back to in-memory workflow: %s",
+            exc,
+            exc_info=True,
+        )
+        workflow = Workflow()
+        start = time.monotonic()
+        res = workflow.invoke(user_input, context=context, config=workflow.config)
+        elapsed = time.monotonic() - start
+        logger.info("Workflow run finished (in-memory) in %.2fs", elapsed)
+        _log_final_state(workflow)
 
 if __name__ == "__main__": 
     main()

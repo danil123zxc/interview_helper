@@ -20,6 +20,49 @@
 - Use `snake_case` for functions/variables, `PascalCase` for classes, `UPPER_SNAKE` for constants.
 - Keep line length reasonable (~100) and follow patterns in `src/`.
 - No formatter/linter is enforced; keep imports tidy and add type hints where practical.
+- Try to make code as reusable as possible, create functions and classes.
+- Write docstrings for every function and class. Each docstring should include: args, what function does, output, input and output examples.
+- Update docstrings everytime you change it.
+
+### Example of a good docstring
+
+    """Compose multiple `wrap_model_call` handlers into single middleware stack.
+
+    Composes handlers so first in list becomes outermost layer. Each handler receives a
+    handler callback to execute inner layers.
+
+    Args:
+        handlers: List of handlers.
+
+            First handler wraps all others.
+
+    Returns:
+        Composed handler, or `None` if handlers empty.
+
+    Example:
+        ```python
+        # handlers=[auth, retry] means: auth wraps retry
+        # Flow: auth calls retry, retry calls base handler
+        def auth(req, state, runtime, handler):
+            try:
+                return handler(req)
+            except UnauthorizedError:
+                refresh_token()
+                return handler(req)
+
+
+        def retry(req, state, runtime, handler):
+            for attempt in range(3):
+                try:
+                    return handler(req)
+                except Exception:
+                    if attempt == 2:
+                        raise
+
+
+        handler = _chain_model_call_handlers([auth, retry])
+        ```
+    """
 
 ## Testing Guidelines
 - Framework: pytest (`tests/`, with mocks/stubs for external tools).
@@ -35,3 +78,7 @@
 ## Configuration & Secrets
 - Local configuration lives in `.env`; never commit real API keys.
 - Required env vars: `OPENAI_API_KEY`, `TAVILY_API_KEY`, `REDDIT_*`, `DB_URL` (see `README.md`).
+
+
+## MCP Usage
+- Always use Context7 if you need any library docs(ex. langchain, langgraph, etc) 
