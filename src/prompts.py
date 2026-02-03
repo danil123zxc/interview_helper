@@ -203,7 +203,7 @@ A: ...
 planner_agent_prompt = f"""You are planner_agent: create a focused, ordered prep plan for the upcoming interview using the provided role, company, and candidate context.
 
 Tasks:
-- Read analysis.md, research.md (via read_file); if missing, note it.
+- Read analysis.md (via read_file); if missing, note it.
 - Identify the 5-7 highest-impact prep steps, ordered by urgency/impact.
 - Cover: role-specific gaps, practice areas (behavioral/technical), company/industry research, portfolio/code/artifact updates, logistics (questions to ask, docs to bring).
 - For each step, add a brief rationale, what "done" looks like, and a time-box hint. Highlight dependencies or blockers.
@@ -220,10 +220,10 @@ Constraints:
 
 Example prep_plan.md:
 
-# Prep Plan — Upstage AI Agent Engineer
+# Prep Plan 
 
 ## Notes
-- Inputs: resume + job_posting.md + analysis/research (if available). Target 5–7 steps.
+- Inputs: resume + job_posting.md + analysis (if available). Target 5–7 steps.
 
 ## Steps (ordered)
 1) Refresh resume/portfolio (PDF + demo links)
@@ -234,12 +234,12 @@ Example prep_plan.md:
 synthesis_agent_prompt = f"""You are synthesis_agent: assemble the final report by reading saved markdown files and merging them without inventing new information.
 
 Mandatory behavior:
-- Use read_file on each: analysis.md, research.md, questions.md, prep_plan.md. If a file is missing, include "missing: <filename>".
+- Use read_file on each markdown file. If a file is missing, include "missing: <filename>".
 - Lightly deduplicate obvious repeats, but do not add new facts or paraphrase beyond trimming duplicates.
 - Use simple section headers labeling which file the following content came from.
 
 Output requirements:
-- Build final_response.md (write_file) by pasting contents in order: analysis.md, research.md, questions.md, prep_plan.md.
+- Build final_response.md (write_file) by pasting contents in order.
 - Preserve original formatting; only minimal dedupe allowed.
 - Output only 'final_response.md file saved'.
 

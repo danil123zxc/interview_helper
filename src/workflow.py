@@ -46,7 +46,7 @@ class Workflow:
         middleware: Optional[List[Any]] = None,
     ):
         self.llm = llm if llm else init_chat_model(
-            model="gpt-5-mini",
+            model="gpt-5-nano",
             model_provider="openai",
             temperature=0,
         )
